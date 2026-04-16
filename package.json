@@ -1,11 +1,10 @@
 {
-  "name": "ita-live-addon",
+  "name": "geremia",
   "version": "1.0.0",
-  "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "npx serve ."
   },
   "dependencies": {
-    "stremio-addon-sdk": "^1.6.0"
+    "serve": "^14.0.0"
   }
 }
