@@ -3,59 +3,58 @@ const express = require("express");
 const app = express();
 
 const builder = new addonBuilder({
-  id: "org.stremio.geremia",
-  version: "1.0.0",
-  name: "Geremia TV",
-  description: "Canali TV Italiani",
-  resources: ["catalog", "stream"],
-  types: ["tv"],
-  catalogs: [
-    {
-      type: "tv",
-      id: "geremia_catalog",
-      name: "Geremia TV"
-    }
-  ]
-});
-
-builder.defineCatalogHandler((args) => {
-  return Promise.resolve({
-    metas: [
-      {
-        id: "ch_rai1",
+    id: "org.geremia.zappr",
+    version: "1.0.0",
+    name: "Geremia Zappr",
+    description: "Powered by ZapprTV - Solo canali che funzionano",
+    resources: ["catalog", "stream"],
+    types: ["tv"],
+    catalogs: [{
         type: "tv",
-        name: "Rai 1",
-        poster: "https://upload.wikimedia.org/wikipedia/commons/5/5e/Rai_1_logo_%282016%29.svg",
-        description: "Diretta Rai 1"
-      }
-    ]
-  });
+        id: "zappr_tv",
+        name: "Zappr TV Live"
+    }]
 });
 
-builder.defineStreamHandler((args) => {
-  if (args.id === "ch_rai1") {
+// Catalogatore basato su Zappr
+builder.defineCatalogHandler(() => {
     return Promise.resolve({
-      streams: [{ url: "https://v7.fancode.com/playlist/rai1/index.m3u8", title: "Rai 1 HD" }]
+        metas: [
+            { id: "zappr_rai1", type: "tv", name: "Rai 1 (Zappr)", poster: "https://zappr.tv/logos/rai1.png" },
+            { id: "zappr_canale5", type: "tv", name: "Canale 5 (Zappr)", poster: "https://zappr.tv/logos/canale5.png" }
+        ]
     });
-  }
-  return Promise.resolve({ streams: [] });
+});
+
+// Stream Handler con i link diretti di Zappr
+builder.defineStreamHandler((args) => {
+    const channels = {
+        "zappr_rai1": "https://zappr.tv/live/rai1/index.m3u8",
+        "zappr_canale5": "https://zappr.tv/live/canale5/index.m3u8"
+    };
+
+    if (channels[args.id]) {
+        return Promise.resolve({
+            streams: [{ url: channels[args.id], title: "Zappr High Quality" }]
+        });
+    }
+    return Promise.resolve({ streams: [] });
 });
 
 const addonInterface = builder.getInterface();
 
 app.get("/manifest.json", (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "*");
-  res.setHeader("Content-Type", "application/json");
-  res.send(addonInterface.manifest);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Content-Type", "application/json");
+    res.send(addonInterface.manifest);
 });
 
 app.get("/:resource/:type/:id.json", (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "*");
-  addonInterface.get(req.params).then((resp) => {
-    res.json(resp);
-  });
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    const { resource, type, id } = req.params;
+    addonInterface.get({ resource, type, id: id.replace(".json", "") })
+        .then(resp => res.send(resp))
+        .catch(() => res.status(500).send("Zappr Error"));
 });
 
 module.exports = app;
