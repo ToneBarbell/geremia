@@ -1,9 +1,4 @@
-const { addonBuilder, getRouter } = require("stremio-addon-sdk");
-const express = require("express");
-const cors = require("cors");
-
-const app = express();
-app.use(cors());
+const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
 
 const manifest = {
   id: "org.zapprtv.geremia",
@@ -51,4 +46,22 @@ builder.defineCatalogHandler(() => {
 builder.defineStreamHandler((args) => {
   const testStream = {
     streams: [
-      
+      {
+        title: "Test Live",
+        url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+      }
+    ]
+  };
+
+  if (
+    args.id === "zappr_rai1" ||
+    args.id === "zappr_canale5" ||
+    args.id === "zappr_giallo"
+  ) {
+    return Promise.resolve(testStream);
+  }
+
+  return Promise.resolve({ streams: [] });
+});
+
+module.exports = serveHTTP(builder.getInterface(), { cacheMaxAge: 0 });
