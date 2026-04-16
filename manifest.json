@@ -1,9 +1,10 @@
 {
-    "id": "org.stremio.geremia",
-    "version": "1.0.0",
-    "name": "Geremia",
-    "description": "Addon Geremia",
-    "resources": ["catalog", "stream"],
-    "types": ["movie", "series"],
-    "catalogs": []
+  "id": "org.stremio.geremia",
+  "version": "1.0.0",
+  "name": "Geremia",
+  "description": "Addon Geremia",
+  "resources": ["catalog", "stream"],
+  "types": ["movie", "series"],
+  "idPrefixes": ["tt"],
+  "catalogs": []
 }
