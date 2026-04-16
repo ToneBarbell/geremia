@@ -30,36 +30,25 @@ builder.defineCatalogHandler(() => {
         id: "zappr_rai1",
         type: "tv",
         name: "Rai 1",
-        poster: "https://static.vecteezy.com/system/resources/previews/019/766/240/non_2x/rai-logo-rai-icon-transparent-free-png.png"
+        poster: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/Rai_1_-_Logo_2016.svg/512px-Rai_1_-_Logo_2016.svg.png"
+      },
+      {
+        id: "zappr_canale5",
+        type: "tv",
+        name: "Canale 5",
+        poster: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/Canale_5_logo_2018.svg/512px-Canale_5_logo_2018.svg.png"
+      },
+      {
+        id: "zappr_giallo",
+        type: "tv",
+        name: "Giallo",
+        poster: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/59/Giallo_logo_2015.svg/512px-Giallo_logo_2015.svg.png"
       }
     ]
   });
 });
 
 builder.defineStreamHandler((args) => {
-  if (args.id === "zappr_rai1") {
-    return Promise.resolve({
-      streams: [
-        {
-          title: "Rai 1",
-          url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-        }
-      ]
-    });
-  }
-
-  return Promise.resolve({ streams: [] });
-});
-
-const router = getRouter(builder.getInterface());
-
-app.use("/", router);
-
-app.get("/", (req, res) => {
-  res.json({
-    ok: true,
-    manifest: "/manifest.json"
-  });
-});
-
-module.exports = app;
+  const testStream = {
+    streams: [
+      
