@@ -1,16 +1,14 @@
 {
-  "name": "geremia-zappr",
+  "name": "zappr-tv",
   "version": "1.0.0",
-  "description": "Zappr TV Addon",
+  "description": "Zappr TV - Stremio Addon Open Source",
   "main": "index.js",
+  "dependencies": {
+    "stremio-addon-sdk": "latest",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
   "scripts": {
     "start": "node index.js"
-  },
-  "dependencies": {
-    "stremio-addon-sdk": "^1.6.10",
-    "express": "^4.18.2"
-  },
-  "engines": {
-    "node": "18.x"
   }
 }
