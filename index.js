@@ -6,16 +6,16 @@ const app = express();
 app.use(cors());
 
 const manifest = {
-    id: "org.zapprtv.addon",
-    version: "1.0.0",
-    name: "Zappr TV",
-    description: "Addon Open Source per la TV Italiana",
-    resources: ["catalog", "stream"],
-    types: ["tv"],
-    catalogs: [{
-        type: "tv",
-        id: "zappr_list",
-        name: "Zappr TV"
+    "id": "org.zapprtv.geremia",
+    "version": "1.0.0",
+    "name": "Zappr Geremia",
+    "description": "Zappr TV Open Source Addon",
+    "resources": ["catalog", "stream"],
+    "types": ["tv"],
+    "catalogs": [{
+        "type": "tv",
+        "id": "zappr_tv",
+        "name": "Zappr TV"
     }]
 };
 
