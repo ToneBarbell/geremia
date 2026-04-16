@@ -2,9 +2,10 @@
   "name": "geremia-zappr",
   "version": "1.0.0",
   "type": "commonjs",
+  "engines": {
+    "node": "20.x"
+  },
   "dependencies": {
-    "stremio-addon-sdk": "^1.6.10",
-    "express": "^4.18.2",
-    "cors": "^2.8.5"
+    "stremio-addon-sdk": "^1.6.10"
   }
 }
