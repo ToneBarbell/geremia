@@ -24,10 +24,6 @@ const manifest = {
   ]
 };
 
-app.get("/", (req, res) => {
-  sendJson(res, manifest);
-});
-
 app.get("/manifest.json", (req, res) => {
   sendJson(res, manifest);
 });
@@ -36,19 +32,19 @@ app.get("/catalog/tv/zappr_tv.json", (req, res) => {
   sendJson(res, {
     metas: [
       {
-        id: "zappr_test",
+        id: "zappr_rai1",
         type: "tv",
-        name: "Canale Test"
+        name: "Rai 1"
       }
     ]
   });
 });
 
-app.get("/stream/tv/zappr_test.json", (req, res) => {
+app.get("/stream/tv/zappr_rai1.json", (req, res) => {
   sendJson(res, {
     streams: [
       {
-        title: "Test Live",
+        title: "Rai 1 Test",
         url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
       }
     ]
