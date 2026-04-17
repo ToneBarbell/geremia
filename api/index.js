@@ -17,7 +17,7 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "2.2.0",
+  version: "2.3.0",
   name: "Zappr Geremia",
   description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "stream"],
@@ -44,7 +44,7 @@ function normalizeName(name) {
 function buildId(channel, prefix = "zappr") {
   if (channel.id) return `${prefix}_${normalizeName(channel.id)}`;
   if (channel.name) return `${prefix}_${normalizeName(channel.name)}`;
-  return `${prefix}_${Date.now()}`;
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function buildPoster(logo) {
@@ -60,13 +60,36 @@ function extractChannels(data) {
   return [];
 }
 
+function isRealTvChannel(channel) {
+  if (!channel || !channel.name) return false;
+
+  const type = String(channel.type || "").toLowerCase();
+
+  const isRadio =
+    type === "audio" ||
+    channel.radio === true ||
+    channel.isRadio === true;
+
+  if (isRadio) return false;
+
+  const hasDirectStream =
+    typeof channel.url === "string" &&
+    channel.url.trim() !== "" &&
+    !channel.hbbtvapp &&
+    !channel.hbbtvmosaic;
+
+  if (!hasDirectStream) return false;
+
+  return true;
+}
+
 function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
   const result = [];
 
   for (const channel of channels) {
     if (!channel || !channel.name) continue;
 
-    if (channel.url) {
+    if (isRealTvChannel(channel)) {
       result.push({
         id: buildId(channel, prefix),
         type: "tv",
@@ -81,11 +104,23 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
     }
 
     if (Array.isArray(channel.channels) && channel.channels.length > 0) {
-      result.push(...flattenChannels(channel.channels, prefix, channel.lcn ?? parentLcn ?? null));
+      result.push(
+        ...flattenChannels(
+          channel.channels,
+          prefix,
+          channel.lcn ?? parentLcn ?? null
+        )
+      );
     }
 
     if (Array.isArray(channel.hbbtv) && channel.hbbtv.length > 0) {
-      result.push(...flattenChannels(channel.hbbtv, prefix, channel.lcn ?? parentLcn ?? null));
+      result.push(
+        ...flattenChannels(
+          channel.hbbtv,
+          prefix,
+          channel.lcn ?? parentLcn ?? null
+        )
+      );
     }
   }
 
@@ -95,7 +130,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 async function loadSource(url, prefix) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/2.2.0"
+      "User-Agent": "Zappr-Geremia/2.3.0"
     }
   });
 
@@ -123,6 +158,7 @@ function dedupeChannels(channels) {
   return Array.from(map.values()).sort((a, b) => {
     const lcnA = a.lcn ?? 999999;
     const lcnB = b.lcn ?? 999999;
+
     if (lcnA !== lcnB) return lcnA - lcnB;
     return a.name.localeCompare(b.name, "it");
   });
