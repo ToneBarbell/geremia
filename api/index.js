@@ -17,7 +17,7 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "2.6.0",
+  version: "2.6.1",
   name: "Zappr Geremia",
   description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "meta", "stream"],
@@ -86,18 +86,16 @@ function isRealTvChannel(channel) {
   if (isRadio) return false;
 
   const hasPlayableSource =
-    (typeof channel.url === "string" && channel.url.trim() !== "") ||
+    (typeof channel.url === "string" &&
+      channel.url.trim() !== "" &&
+      !channel.url.startsWith("zappr://")) ||
     (channel.geoblock &&
       typeof channel.geoblock === "object" &&
       typeof channel.geoblock.url === "string" &&
       channel.geoblock.url.trim() !== "") ||
     (channel.nativeHLS &&
       typeof channel.nativeHLS.url === "string" &&
-      channel.nativeHLS.url.trim() !== "") ||
-    (channel.fallback &&
-      typeof channel.fallback === "object" &&
-      typeof channel.fallback.url === "string" &&
-      channel.fallback.url.trim() !== "");
+      channel.nativeHLS.url.trim() !== "");
 
   return hasPlayableSource;
 }
@@ -136,27 +134,6 @@ function resolveStream(channel) {
   ) {
     return {
       url: channel.geoblock.url
-    };
-  }
-
-  if (
-    channel.fallback &&
-    typeof channel.fallback === "object" &&
-    typeof channel.fallback.url === "string" &&
-    channel.fallback.url.trim() !== ""
-  ) {
-    return {
-      externalUrl: channel.fallback.url
-    };
-  }
-
-  if (
-    (type === "iframe" || type === "popup") &&
-    typeof channel.url === "string" &&
-    channel.url.trim() !== ""
-  ) {
-    return {
-      externalUrl: channel.url
     };
   }
 
@@ -216,7 +193,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 async function loadSource(url, prefix) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/2.6.0"
+      "User-Agent": "Zappr-Geremia/2.6.1"
     }
   });
 
@@ -233,9 +210,9 @@ function dedupeChannels(channels) {
   const map = new Map();
 
   for (const channel of channels) {
-    if (!channel.stream) continue;
+    if (!channel.stream || !channel.stream.url) continue;
 
-    const key = channel.id || `${channel.name}_${JSON.stringify(channel.stream)}`;
+    const key = channel.id || `${channel.name}_${channel.stream.url}`;
     if (!map.has(key)) {
       map.set(key, channel);
     }
@@ -320,17 +297,17 @@ app.get("/stream/tv/:id.json", async (req, res) => {
     const channels = await loadChannels();
     const channel = channels.find((c) => c.id === req.params.id);
 
-    if (!channel || !channel.stream) {
+    if (!channel || !channel.stream || !channel.stream.url) {
       return sendJson(res, { streams: [] });
     }
 
-    const streamItem = {
-      title: channel.hd ? `${channel.name} HD` : channel.name,
-      ...channel.stream
-    };
-
     sendJson(res, {
-      streams: [streamItem]
+      streams: [
+        {
+          title: channel.hd ? `${channel.name} HD` : channel.name,
+          url: channel.stream.url
+        }
+      ]
     });
   } catch (error) {
     console.error(error);
