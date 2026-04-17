@@ -1,6 +1,13 @@
 const express = require("express");
 const app = express();
 
+function sendJson(res, data) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.setHeader("Content-Type", "application/json");
+  res.send(JSON.stringify(data));
+}
+
 const manifest = {
   id: "org.zapprtv.geremia",
   version: "1.0.0",
@@ -17,12 +24,9 @@ const manifest = {
   ]
 };
 
-function sendJson(res, data) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "*");
-  res.setHeader("Content-Type", "application/json");
-  res.send(JSON.stringify(data));
-}
+app.get("/", (req, res) => {
+  sendJson(res, manifest);
+});
 
 app.get("/manifest.json", (req, res) => {
   sendJson(res, manifest);
@@ -40,19 +44,15 @@ app.get("/catalog/tv/zappr_tv.json", (req, res) => {
   });
 });
 
-app.get("/stream/tv/:id.json", (req, res) => {
-  if (req.params.id === "zappr_test") {
-    return sendJson(res, {
-      streams: [
-        {
-          title: "Test Live",
-          url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-        }
-      ]
-    });
-  }
-
-  sendJson(res, { streams: [] });
+app.get("/stream/tv/zappr_test.json", (req, res) => {
+  sendJson(res, {
+    streams: [
+      {
+        title: "Test Live",
+        url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+      }
+    ]
+  });
 });
 
 module.exports = app;
