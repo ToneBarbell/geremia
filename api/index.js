@@ -17,10 +17,10 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "2.5.0",
+  version: "2.6.0",
   name: "Zappr Geremia",
   description: "Canali Zappr dinamici nazionali + Lombardia",
-  resources: ["catalog", "stream"],
+  resources: ["catalog", "meta", "stream"],
   types: ["tv"],
   catalogs: [
     {
@@ -85,15 +85,82 @@ function isRealTvChannel(channel) {
 
   if (isRadio) return false;
 
-  const hasDirectStream =
+  const hasPlayableSource =
+    (typeof channel.url === "string" && channel.url.trim() !== "") ||
+    (channel.geoblock &&
+      typeof channel.geoblock === "object" &&
+      typeof channel.geoblock.url === "string" &&
+      channel.geoblock.url.trim() !== "") ||
+    (channel.nativeHLS &&
+      typeof channel.nativeHLS.url === "string" &&
+      channel.nativeHLS.url.trim() !== "") ||
+    (channel.fallback &&
+      typeof channel.fallback === "object" &&
+      typeof channel.fallback.url === "string" &&
+      channel.fallback.url.trim() !== "");
+
+  return hasPlayableSource;
+}
+
+function resolveStream(channel) {
+  if (!channel) return null;
+
+  const type = String(channel.type || "").toLowerCase();
+
+  if (
+    channel.nativeHLS &&
+    typeof channel.nativeHLS.url === "string" &&
+    channel.nativeHLS.url.trim() !== ""
+  ) {
+    return {
+      url: channel.nativeHLS.url
+    };
+  }
+
+  if (
+    (type === "hls" || type === "dash") &&
     typeof channel.url === "string" &&
     channel.url.trim() !== "" &&
-    !channel.hbbtvapp &&
-    !channel.hbbtvmosaic;
+    !channel.url.startsWith("zappr://")
+  ) {
+    return {
+      url: channel.url
+    };
+  }
 
-  if (!hasDirectStream) return false;
+  if (
+    channel.geoblock &&
+    typeof channel.geoblock === "object" &&
+    typeof channel.geoblock.url === "string" &&
+    channel.geoblock.url.trim() !== ""
+  ) {
+    return {
+      url: channel.geoblock.url
+    };
+  }
 
-  return true;
+  if (
+    channel.fallback &&
+    typeof channel.fallback === "object" &&
+    typeof channel.fallback.url === "string" &&
+    channel.fallback.url.trim() !== ""
+  ) {
+    return {
+      externalUrl: channel.fallback.url
+    };
+  }
+
+  if (
+    (type === "iframe" || type === "popup") &&
+    typeof channel.url === "string" &&
+    channel.url.trim() !== ""
+  ) {
+    return {
+      externalUrl: channel.url
+    };
+  }
+
+  return null;
 }
 
 function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
@@ -104,19 +171,22 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 
     if (isRealTvChannel(channel)) {
       const logoUrl = buildLogoUrl(channel.logo);
+      const resolvedStream = resolveStream(channel);
 
-      result.push({
-        id: buildId(channel, prefix),
-        type: "tv",
-        name: channel.name,
-        poster: buildPoster(channel),
-        background: buildBackground(channel),
-        logo: logoUrl,
-        stream: channel.url,
-        lcn: channel.lcn ?? parentLcn ?? null,
-        hd: !!channel.hd,
-        source: channel
-      });
+      if (resolvedStream) {
+        result.push({
+          id: buildId(channel, prefix),
+          type: "tv",
+          name: channel.name,
+          poster: buildPoster(channel),
+          background: buildBackground(channel),
+          logo: logoUrl,
+          stream: resolvedStream,
+          lcn: channel.lcn ?? parentLcn ?? null,
+          hd: !!channel.hd,
+          source: channel
+        });
+      }
     }
 
     if (Array.isArray(channel.channels) && channel.channels.length > 0) {
@@ -146,7 +216,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 async function loadSource(url, prefix) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/2.5.0"
+      "User-Agent": "Zappr-Geremia/2.6.0"
     }
   });
 
@@ -165,7 +235,7 @@ function dedupeChannels(channels) {
   for (const channel of channels) {
     if (!channel.stream) continue;
 
-    const key = channel.id || `${channel.name}_${channel.stream}`;
+    const key = channel.id || `${channel.name}_${JSON.stringify(channel.stream)}`;
     if (!map.has(key)) {
       map.set(key, channel);
     }
@@ -188,6 +258,10 @@ async function loadChannels() {
 
   return dedupeChannels([...nationalChannels, ...lombardiaChannels]);
 }
+
+app.get("/", (req, res) => {
+  res.redirect("/manifest.json");
+});
 
 app.get("/manifest.json", (req, res) => {
   sendJson(res, manifest);
@@ -246,17 +320,17 @@ app.get("/stream/tv/:id.json", async (req, res) => {
     const channels = await loadChannels();
     const channel = channels.find((c) => c.id === req.params.id);
 
-    if (!channel) {
+    if (!channel || !channel.stream) {
       return sendJson(res, { streams: [] });
     }
 
+    const streamItem = {
+      title: channel.hd ? `${channel.name} HD` : channel.name,
+      ...channel.stream
+    };
+
     sendJson(res, {
-      streams: [
-        {
-          title: channel.hd ? `${channel.name} HD` : channel.name,
-          url: channel.stream
-        }
-      ]
+      streams: [streamItem]
     });
   } catch (error) {
     console.error(error);
