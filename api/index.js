@@ -17,7 +17,7 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "2.3.0",
+  version: "2.4.0",
   name: "Zappr Geremia",
   description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "stream"],
@@ -47,10 +47,25 @@ function buildId(channel, prefix = "zappr") {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function buildPoster(logo) {
+function buildLogoUrl(logo) {
   if (!logo) return undefined;
   if (logo.startsWith("http://") || logo.startsWith("https://")) return logo;
   return `${LOGOS_BASE_URL}${logo}`;
+}
+
+function buildFallbackPoster(channel) {
+  const name = encodeURIComponent(channel.name || "Canale TV");
+  return `https://placehold.co/300x450/111827/E5E7EB/png?text=${name}`;
+}
+
+function buildPoster(channel) {
+  const logoUrl = buildLogoUrl(channel.logo);
+
+  if (logoUrl) {
+    return buildFallbackPoster(channel);
+  }
+
+  return buildFallbackPoster(channel);
 }
 
 function extractChannels(data) {
@@ -94,8 +109,8 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
         id: buildId(channel, prefix),
         type: "tv",
         name: channel.name,
-        poster: buildPoster(channel.logo),
-        background: buildPoster(channel.logo),
+        poster: buildPoster(channel),
+        background: buildPoster(channel),
         stream: channel.url,
         lcn: channel.lcn ?? parentLcn ?? null,
         hd: !!channel.hd,
@@ -130,7 +145,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 async function loadSource(url, prefix) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/2.3.0"
+      "User-Agent": "Zappr-Geremia/2.4.0"
     }
   });
 
@@ -188,7 +203,7 @@ app.get("/catalog/tv/zappr_tv.json", async (req, res) => {
         name: channel.lcn ? `${channel.lcn} - ${channel.name}` : channel.name,
         poster: channel.poster,
         background: channel.background,
-        posterShape: "square"
+        posterShape: "regular"
       }))
     });
   } catch (error) {
