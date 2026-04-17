@@ -10,7 +10,7 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "1.0.1",
+  version: "1.0.2",
   name: "Zappr Geremia",
   description: "Canali TV da Zappr",
   resources: ["catalog", "stream"],
@@ -29,21 +29,24 @@ const channels = [
     id: "zappr_rai1",
     type: "tv",
     name: "Rai 1",
-    poster: "https://raw.githubusercontent.com/ZapprTV/channels/main/it/logos/rai1.svg",
+    poster: "https://channels.zappr.stream/logos/it/rai1.png",
+    background: "https://channels.zappr.stream/logos/it/rai1.png",
     stream: "https://rai.zappr.stream/rai1.m3u8"
   },
   {
     id: "zappr_rai2",
     type: "tv",
     name: "Rai 2",
-    poster: "https://raw.githubusercontent.com/ZapprTV/channels/main/it/logos/rai2.svg",
+    poster: "https://channels.zappr.stream/logos/it/rai2.png",
+    background: "https://channels.zappr.stream/logos/it/rai2.png",
     stream: "https://rai.zappr.stream/rai2.m3u8"
   },
   {
     id: "zappr_rai3",
     type: "tv",
     name: "Rai 3",
-    poster: "https://raw.githubusercontent.com/ZapprTV/channels/main/it/logos/rai3.svg",
+    poster: "https://channels.zappr.stream/logos/it/rai3.png",
+    background: "https://channels.zappr.stream/logos/it/rai3.png",
     stream: "https://rai.zappr.stream/rai3.m3u8"
   }
 ];
@@ -59,6 +62,7 @@ app.get("/catalog/tv/zappr_tv.json", (req, res) => {
       type: channel.type,
       name: channel.name,
       poster: channel.poster,
+      background: channel.background,
       posterShape: "square"
     }))
   });
