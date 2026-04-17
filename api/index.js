@@ -1,10 +1,12 @@
 const express = require("express");
 const app = express();
 
-const CHANNELS_JSON_URL =
-  "https://raw.githubusercontent.com/ZapprTV/channels/main/it/dtt/regional/lombardia.json";
+const NATIONAL_JSON_URL =
+  "https://raw.githubusercontent.com/ZapprTV/channels/refs/heads/main/it/dtt/national.json";
+const LOMBARDIA_JSON_URL =
+  "https://raw.githubusercontent.com/ZapprTV/channels/refs/heads/main/it/dtt/regional/lombardia.json";
 const LOGOS_BASE_URL =
-  "https://raw.githubusercontent.com/ZapprTV/channels/main/logos/";
+  "https://raw.githubusercontent.com/ZapprTV/channels/refs/heads/main/logos/";
 
 function sendJson(res, data) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -15,16 +17,16 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "2.1.0",
+  version: "2.2.0",
   name: "Zappr Geremia",
-  description: "Canali Zappr dinamici Lombardia",
+  description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "stream"],
   types: ["tv"],
   catalogs: [
     {
       type: "tv",
       id: "zappr_tv",
-      name: "Zappr TV Lombardia"
+      name: "Zappr TV Lombardia + Nazionali"
     }
   ]
 };
@@ -39,10 +41,10 @@ function normalizeName(name) {
     .replace(/^_+|_+$/g, "");
 }
 
-function buildId(channel) {
-  if (channel.slug) return `zappr_${normalizeName(channel.slug)}`;
-  if (channel.name) return `zappr_${normalizeName(channel.name)}`;
-  return `zappr_${Date.now()}`;
+function buildId(channel, prefix = "zappr") {
+  if (channel.id) return `${prefix}_${normalizeName(channel.id)}`;
+  if (channel.name) return `${prefix}_${normalizeName(channel.name)}`;
+  return `${prefix}_${Date.now()}`;
 }
 
 function buildPoster(logo) {
@@ -58,33 +60,81 @@ function extractChannels(data) {
   return [];
 }
 
-async function loadChannels() {
-  const response = await fetch(CHANNELS_JSON_URL, {
+function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
+  const result = [];
+
+  for (const channel of channels) {
+    if (!channel || !channel.name) continue;
+
+    if (channel.url) {
+      result.push({
+        id: buildId(channel, prefix),
+        type: "tv",
+        name: channel.name,
+        poster: buildPoster(channel.logo),
+        background: buildPoster(channel.logo),
+        stream: channel.url,
+        lcn: channel.lcn ?? parentLcn ?? null,
+        hd: !!channel.hd,
+        source: channel
+      });
+    }
+
+    if (Array.isArray(channel.channels) && channel.channels.length > 0) {
+      result.push(...flattenChannels(channel.channels, prefix, channel.lcn ?? parentLcn ?? null));
+    }
+
+    if (Array.isArray(channel.hbbtv) && channel.hbbtv.length > 0) {
+      result.push(...flattenChannels(channel.hbbtv, prefix, channel.lcn ?? parentLcn ?? null));
+    }
+  }
+
+  return result;
+}
+
+async function loadSource(url, prefix) {
+  const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/2.1.0"
+      "User-Agent": "Zappr-Geremia/2.2.0"
     }
   });
 
   if (!response.ok) {
-    throw new Error(`Errore caricamento Zappr: ${response.status}`);
+    throw new Error(`Errore ${response.status} su ${url}`);
   }
 
   const data = await response.json();
   const rawChannels = extractChannels(data);
+  return flattenChannels(rawChannels, prefix);
+}
 
-  return rawChannels
-    .filter((channel) => channel && channel.name && channel.url)
-    .map((channel) => ({
-      id: buildId(channel),
-      type: "tv",
-      name: channel.name,
-      poster: buildPoster(channel.logo),
-      background: buildPoster(channel.logo),
-      stream: channel.url,
-      lcn: channel.lcn,
-      hd: channel.hd,
-      source: channel
-    }));
+function dedupeChannels(channels) {
+  const map = new Map();
+
+  for (const channel of channels) {
+    if (!channel.stream) continue;
+
+    const key = channel.id || `${channel.name}_${channel.stream}`;
+    if (!map.has(key)) {
+      map.set(key, channel);
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => {
+    const lcnA = a.lcn ?? 999999;
+    const lcnB = b.lcn ?? 999999;
+    if (lcnA !== lcnB) return lcnA - lcnB;
+    return a.name.localeCompare(b.name, "it");
+  });
+}
+
+async function loadChannels() {
+  const [nationalChannels, lombardiaChannels] = await Promise.all([
+    loadSource(NATIONAL_JSON_URL, "zappr"),
+    loadSource(LOMBARDIA_JSON_URL, "zappr")
+  ]);
+
+  return dedupeChannels([...nationalChannels, ...lombardiaChannels]);
 }
 
 app.get("/manifest.json", (req, res) => {
