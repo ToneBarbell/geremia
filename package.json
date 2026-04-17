@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "type": "commonjs",
   "engines": {
-    "node": "20.x"
+    "node": "22.x"
   },
   "dependencies": {
-    "stremio-addon-sdk": "^1.6.10"
+    "express": "^4.18.2"
   }
 }
