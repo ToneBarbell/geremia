@@ -18,7 +18,7 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "2.9.1",
+  version: "2.9.2",
   name: "Zappr Geremia",
   description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "meta", "stream"],
@@ -103,7 +103,7 @@ function normalizeRaiUrl(url) {
 
   try {
     const parsed = new URL(clean);
-    parsed.searchParams.set("output", "62");
+    parsed.searchParams.set("output", "16");
     return parsed.toString();
   } catch {
     return clean;
@@ -218,7 +218,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 async function loadSource(url, prefix) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/2.9.1"
+      "User-Agent": "Zappr-Geremia/2.9.2"
     }
   });
 
