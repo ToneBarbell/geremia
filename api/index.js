@@ -17,7 +17,7 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "2.4.0",
+  version: "2.5.0",
   name: "Zappr Geremia",
   description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "stream"],
@@ -53,19 +53,17 @@ function buildLogoUrl(logo) {
   return `${LOGOS_BASE_URL}${logo}`;
 }
 
-function buildFallbackPoster(channel) {
-  const name = encodeURIComponent(channel.name || "Canale TV");
-  return `https://placehold.co/300x450/111827/E5E7EB/png?text=${name}`;
+function buildTextImage(text, bg = "F3F4F6", fg = "111827") {
+  const cleanText = encodeURIComponent(String(text || "Canale TV").slice(0, 40));
+  return `https://placehold.co/300x450/${bg}/${fg}.png?text=${cleanText}`;
 }
 
 function buildPoster(channel) {
-  const logoUrl = buildLogoUrl(channel.logo);
+  return buildTextImage(channel.name || "Canale TV", "F3F4F6", "111827");
+}
 
-  if (logoUrl) {
-    return buildFallbackPoster(channel);
-  }
-
-  return buildFallbackPoster(channel);
+function buildBackground(channel) {
+  return buildTextImage(channel.name || "Canale TV", "E5E7EB", "111827");
 }
 
 function extractChannels(data) {
@@ -105,12 +103,15 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
     if (!channel || !channel.name) continue;
 
     if (isRealTvChannel(channel)) {
+      const logoUrl = buildLogoUrl(channel.logo);
+
       result.push({
         id: buildId(channel, prefix),
         type: "tv",
         name: channel.name,
         poster: buildPoster(channel),
-        background: buildPoster(channel),
+        background: buildBackground(channel),
+        logo: logoUrl,
         stream: channel.url,
         lcn: channel.lcn ?? parentLcn ?? null,
         hd: !!channel.hd,
@@ -145,7 +146,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 async function loadSource(url, prefix) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/2.4.0"
+      "User-Agent": "Zappr-Geremia/2.5.0"
     }
   });
 
@@ -203,12 +204,40 @@ app.get("/catalog/tv/zappr_tv.json", async (req, res) => {
         name: channel.lcn ? `${channel.lcn} - ${channel.name}` : channel.name,
         poster: channel.poster,
         background: channel.background,
-        posterShape: "regular"
+        logo: channel.logo,
+        posterShape: "poster"
       }))
     });
   } catch (error) {
     console.error(error);
     sendJson(res, { metas: [] });
+  }
+});
+
+app.get("/meta/tv/:id.json", async (req, res) => {
+  try {
+    const channels = await loadChannels();
+    const channel = channels.find((c) => c.id === req.params.id);
+
+    if (!channel) {
+      return sendJson(res, { meta: null });
+    }
+
+    sendJson(res, {
+      meta: {
+        id: channel.id,
+        type: channel.type,
+        name: channel.lcn ? `${channel.lcn} - ${channel.name}` : channel.name,
+        poster: channel.poster,
+        background: channel.background,
+        logo: channel.logo,
+        posterShape: "poster",
+        description: `Canale TV live: ${channel.name}`
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    sendJson(res, { meta: null });
   }
 });
 
