@@ -44,8 +44,8 @@ app.get("/stream/tv/zappr_rai1.json", (req, res) => {
   sendJson(res, {
     streams: [
       {
-        title: "Rai 1 Test",
-        url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+        title: "Rai 1",
+        url: "https://rai.zappr.stream/rai1.m3u8"
       }
     ]
   });
