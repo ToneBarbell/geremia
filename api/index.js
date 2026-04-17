@@ -1,10 +1,11 @@
-const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
+const express = require("express");
+const app = express();
 
-const builder = new addonBuilder({
+const manifest = {
   id: "org.zapprtv.geremia",
   version: "1.0.0",
   name: "Zappr Geremia",
-  description: "Mini addon test per Stremio",
+  description: "Addon test",
   resources: ["catalog", "stream"],
   types: ["tv"],
   catalogs: [
@@ -14,25 +15,34 @@ const builder = new addonBuilder({
       name: "Zappr TV"
     }
   ]
+};
+
+function sendJson(res, data) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.setHeader("Content-Type", "application/json");
+  res.send(JSON.stringify(data));
+}
+
+app.get("/manifest.json", (req, res) => {
+  sendJson(res, manifest);
 });
 
-builder.defineCatalogHandler(() =>
-  Promise.resolve({
+app.get("/catalog/tv/zappr_tv.json", (req, res) => {
+  sendJson(res, {
     metas: [
-      { id: "zappr_rai1", type: "tv", name: "Rai 1" },
-      { id: "zappr_canale5", type: "tv", name: "Canale 5" },
-      { id: "zappr_giallo", type: "tv", name: "Giallo" }
+      {
+        id: "zappr_test",
+        type: "tv",
+        name: "Canale Test"
+      }
     ]
-  })
-);
+  });
+});
 
-builder.defineStreamHandler((args) => {
-  if (
-    args.id === "zappr_rai1" ||
-    args.id === "zappr_canale5" ||
-    args.id === "zappr_giallo"
-  ) {
-    return Promise.resolve({
+app.get("/stream/tv/:id.json", (req, res) => {
+  if (req.params.id === "zappr_test") {
+    return sendJson(res, {
       streams: [
         {
           title: "Test Live",
@@ -42,7 +52,7 @@ builder.defineStreamHandler((args) => {
     });
   }
 
-  return Promise.resolve({ streams: [] });
+  sendJson(res, { streams: [] });
 });
 
-serveHTTP(builder.getInterface(), { port: 7000 });
+module.exports = app;
