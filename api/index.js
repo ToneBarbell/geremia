@@ -17,7 +17,7 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "2.6.3",
+  version: "2.7.0",
   name: "Zappr Geremia",
   description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "meta", "stream"],
@@ -73,73 +73,261 @@ function extractChannels(data) {
   return [];
 }
 
-function isBlockedPageUrl(url) {
-  if (typeof url !== "string") return true;
-  const clean = url.trim();
-  if (!clean) return true;
-  if (clean.startsWith("zappr://")) return true;
+function isRadioChannel(channel) {
+  if (!channel) return true;
 
-  const lower = clean.toLowerCase();
-
-  if (lower.includes("raiplay.it/dirette/")) return true;
-  if (lower.includes("mediasetinfinity.mediaset.it")) return true;
-  if (lower.includes("wittytv.it")) return true;
+  const type = String(channel.type || "").toLowerCase();
+  if (type === "audio") return true;
+  if (channel.radio === true) return true;
+  if (channel.isRadio === true) return true;
 
   return false;
 }
 
-function normalizeRaiRelinker(url) {
-  if (typeof url !== "string") return null;
+function isZapprInternalUrl(url) {
+  return typeof url === "string" && url.trim().startsWith("zappr://");
+}
+
+function isHttpUrl(url) {
+  return typeof url === "string" && /^https?:\/\//i.test(url.trim());
+}
+
+function normalizeRaiUrl(url) {
+  if (!isHttpUrl(url)) return null;
+
   const clean = url.trim();
-  if (!clean) return null;
-  if (!clean.includes("mediapolis.rai.it/relinker/relinkerServlet.htm")) return null;
+  if (!clean.includes("mediapolis.rai.it/relinker/relinkerServlet.htm")) {
+    return clean;
+  }
 
   try {
-    const u = new URL(clean);
+    const parsed = new URL(clean);
 
-    if (!u.searchParams.get("output")) {
-      u.searchParams.set("output", "16");
+    if (!parsed.searchParams.get("output")) {
+      parsed.searchParams.set("output", "7");
     }
 
-    if (!u.searchParams.get("forceUserAgent")) {
-      u.searchParams.set("forceUserAgent", "raiplayappletv");
+    if (!parsed.searchParams.get("forceUserAgent")) {
+      parsed.searchParams.set("forceUserAgent", "raiplayappletv");
     }
 
-    return u.toString();
+    return parsed.toString();
   } catch {
     return clean;
   }
 }
 
-function getDirectUrlFromChannel(channel) {
+function pickStreamUrl(channel) {
   if (!channel) return null;
-
-  const type = String(channel.type || "").toLowerCase();
 
   if (
     channel.nativeHLS &&
     typeof channel.nativeHLS === "object" &&
-    typeof channel.nativeHLS.url === "string" &&
-    channel.nativeHLS.url.trim() !== ""
+    isHttpUrl(channel.nativeHLS.url)
   ) {
-    return channel.nativeHLS.url.trim();
+    return normalizeRaiUrl(channel.nativeHLS.url);
+  }
+
+  if (isHttpUrl(channel.url) && !isZapprInternalUrl(channel.url)) {
+    return normalizeRaiUrl(channel.url);
   }
 
   if (
-    typeof channel.url === "string" &&
-    channel.url.includes("mediapolis.rai.it/relinker/relinkerServlet.htm")
+    channel.geoblock &&
+    typeof channel.geoblock === "object" &&
+    isHttpUrl(channel.geoblock.url)
   ) {
-    return normalizeRaiRelinker(channel.url);
+    return normalizeRaiUrl(channel.geoblock.url);
   }
 
   if (
-    (type === "hls" || type === "dash") &&
-    typeof channel.url === "string" &&
-    channel.url.trim() !== "" &&
-    !isBlockedPageUrl(channel.url)
+    channel.fallback &&
+    typeof channel.fallback === "object" &&
+    isHttpUrl(channel.fallback.url) &&
+    channel.fallback.url.includes("mediapolis.rai.it/relinker/relinkerServlet.htm")
   ) {
-    return channel.url.trim();
+    return normalizeRaiUrl(channel.fallback.url);
   }
 
-  if (
-    channel
+  return null;
+}
+
+function isRealTvChannel(channel) {
+  if (!channel || !channel.name) return false;
+  if (isRadioChannel(channel)) return false;
+  return !!pickStreamUrl(channel);
+}
+
+function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
+  const result = [];
+
+  for (const channel of channels) {
+    if (!channel || !channel.name) continue;
+
+    if (isRealTvChannel(channel)) {
+      const streamUrl = pickStreamUrl(channel);
+
+      if (streamUrl) {
+        result.push({
+          id: buildId(channel, prefix),
+          type: "tv",
+          name: channel.name,
+          poster: buildPoster(channel),
+          background: buildBackground(channel),
+          logo: buildLogoUrl(channel.logo),
+          streamUrl,
+          lcn: channel.lcn ?? parentLcn ?? null,
+          hd: !!channel.hd
+        });
+      }
+    }
+
+    if (Array.isArray(channel.channels) && channel.channels.length > 0) {
+      result.push(
+        ...flattenChannels(
+          channel.channels,
+          prefix,
+          channel.lcn ?? parentLcn ?? null
+        )
+      );
+    }
+
+    if (Array.isArray(channel.hbbtv) && channel.hbbtv.length > 0) {
+      result.push(
+        ...flattenChannels(
+          channel.hbbtv,
+          prefix,
+          channel.lcn ?? parentLcn ?? null
+        )
+      );
+    }
+  }
+
+  return result;
+}
+
+async function loadSource(url, prefix) {
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Zappr-Geremia/2.7.0"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Errore ${response.status} su ${url}`);
+  }
+
+  const data = await response.json();
+  return flattenChannels(extractChannels(data), prefix);
+}
+
+function dedupeChannels(channels) {
+  const map = new Map();
+
+  for (const channel of channels) {
+    if (!channel.streamUrl) continue;
+
+    const key = `${channel.id}__${channel.streamUrl}`;
+    if (!map.has(key)) {
+      map.set(key, channel);
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => {
+    const lcnA = a.lcn ?? 999999;
+    const lcnB = b.lcn ?? 999999;
+
+    if (lcnA !== lcnB) return lcnA - lcnB;
+    return a.name.localeCompare(b.name, "it");
+  });
+}
+
+async function loadChannels() {
+  const [nationalChannels, lombardiaChannels] = await Promise.all([
+    loadSource(NATIONAL_JSON_URL, "zappr"),
+    loadSource(LOMBARDIA_JSON_URL, "zappr")
+  ]);
+
+  return dedupeChannels([...nationalChannels, ...lombardiaChannels]);
+}
+
+app.get("/", (req, res) => {
+  res.redirect("/manifest.json");
+});
+
+app.get("/manifest.json", (req, res) => {
+  sendJson(res, manifest);
+});
+
+app.get("/catalog/tv/zappr_tv.json", async (req, res) => {
+  try {
+    const channels = await loadChannels();
+
+    sendJson(res, {
+      metas: channels.map((channel) => ({
+        id: channel.id,
+        type: "tv",
+        name: channel.lcn ? `${channel.lcn} - ${channel.name}` : channel.name,
+        poster: channel.poster,
+        background: channel.background,
+        logo: channel.logo,
+        posterShape: "poster"
+      }))
+    });
+  } catch (error) {
+    console.error(error);
+    sendJson(res, { metas: [] });
+  }
+});
+
+app.get("/meta/tv/:id.json", async (req, res) => {
+  try {
+    const channels = await loadChannels();
+    const channel = channels.find((c) => c.id === req.params.id);
+
+    if (!channel) {
+      return sendJson(res, { meta: null });
+    }
+
+    sendJson(res, {
+      meta: {
+        id: channel.id,
+        type: "tv",
+        name: channel.lcn ? `${channel.lcn} - ${channel.name}` : channel.name,
+        poster: channel.poster,
+        background: channel.background,
+        logo: channel.logo,
+        posterShape: "poster",
+        description: `Canale TV live: ${channel.name}`
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    sendJson(res, { meta: null });
+  }
+});
+
+app.get("/stream/tv/:id.json", async (req, res) => {
+  try {
+    const channels = await loadChannels();
+    const channel = channels.find((c) => c.id === req.params.id);
+
+    if (!channel || !channel.streamUrl) {
+      return sendJson(res, { streams: [] });
+    }
+
+    sendJson(res, {
+      streams: [
+        {
+          title: channel.hd ? `${channel.name} HD` : channel.name,
+          url: channel.streamUrl
+        }
+      ]
+    });
+  } catch (error) {
+    console.error(error);
+    sendJson(res, { streams: [] });
+  }
+});
+
+module.exports = app;
