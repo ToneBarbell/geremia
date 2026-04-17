@@ -18,7 +18,7 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "2.8.0",
+  version: "2.9.0",
   name: "Zappr Geremia",
   description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "meta", "stream"],
@@ -206,7 +206,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 async function loadSource(url, prefix) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/2.8.0"
+      "User-Agent": "Zappr-Geremia/2.9.0"
     }
   });
 
@@ -246,6 +246,10 @@ async function loadChannels() {
   ]);
 
   return dedupeChannels([...nationalChannels, ...lombardiaChannels]);
+}
+
+function buildStreamUrl(channel) {
+  return channel && channel.streamUrl ? channel.streamUrl : null;
 }
 
 app.get("/", (req, res) => {
@@ -309,7 +313,13 @@ app.get("/stream/tv/:id.json", async (req, res) => {
     const channels = await loadChannels();
     const channel = channels.find((c) => c.id === req.params.id);
 
-    if (!channel || !channel.streamUrl) {
+    if (!channel) {
+      return sendJson(res, { streams: [] });
+    }
+
+    const streamUrl = buildStreamUrl(channel);
+
+    if (!streamUrl) {
       return sendJson(res, { streams: [] });
     }
 
@@ -317,7 +327,7 @@ app.get("/stream/tv/:id.json", async (req, res) => {
       streams: [
         {
           title: channel.hd ? `${channel.name} HD` : channel.name,
-          url: channel.streamUrl,
+          url: streamUrl,
           behaviorHints: {
             notWebReady: true
           }
@@ -327,6 +337,68 @@ app.get("/stream/tv/:id.json", async (req, res) => {
   } catch (error) {
     console.error(error);
     sendJson(res, { streams: [] });
+  }
+});
+
+app.get("/resolve", async (req, res) => {
+  try {
+    const raw = req.query.url;
+    const url = Array.isArray(raw) ? raw[0] : raw;
+
+    if (!url || typeof url !== "string") {
+      return sendJson(res, { error: "URL mancante." });
+    }
+
+    const cleanUrl = url.trim();
+
+    if (!isHttpUrl(cleanUrl)) {
+      return sendJson(res, { error: "URL non valido." });
+    }
+
+    if (cleanUrl.includes("mediapolis.rai.it/relinker/relinkerServlet.htm")) {
+      const resolvedUrl = normalizeRaiUrl(cleanUrl);
+
+      const response = await fetch(resolvedUrl);
+      if (!response.ok) {
+        return sendJson(res, { error: "Impossibile risolvere l'URL Rai." });
+      }
+
+      const data = await response.json();
+      const finalUrl = data && Array.isArray(data.video) && data.video[0] ? data.video[0] : null;
+
+      if (!finalUrl) {
+        return sendJson(res, { error: "Stream Rai non trovato." });
+      }
+
+      return sendJson(res, {
+        url: finalUrl
+      });
+    }
+
+    if (cleanUrl.includes("/video/viewlivestreaming")) {
+      const response = await fetch(cleanUrl);
+      if (!response.ok) {
+        return sendJson(res, { error: "Impossibile risolvere l'URL Babylon." });
+      }
+
+      const html = await response.text();
+      const match = html.match(/<source[^>]*src=["']([^"']+)["']/i);
+
+      if (!match || !match[1]) {
+        return sendJson(res, { error: "Stream Babylon non trovato." });
+      }
+
+      return sendJson(res, {
+        url: match[1]
+      });
+    }
+
+    return sendJson(res, {
+      url: cleanUrl
+    });
+  } catch (error) {
+    console.error(error);
+    sendJson(res, { error: "Errore durante la risoluzione dello stream." });
   }
 });
 
