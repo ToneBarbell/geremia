@@ -10,14 +10,15 @@ const LOGOS_BASE_URL =
 
 function sendJson(res, data) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Content-Type", "application/json");
   res.send(JSON.stringify(data));
 }
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "2.7.0",
+  version: "2.8.0",
   name: "Zappr Geremia",
   description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "meta", "stream"],
@@ -84,10 +85,6 @@ function isRadioChannel(channel) {
   return false;
 }
 
-function isZapprInternalUrl(url) {
-  return typeof url === "string" && url.trim().startsWith("zappr://");
-}
-
 function isHttpUrl(url) {
   return typeof url === "string" && /^https?:\/\//i.test(url.trim());
 }
@@ -104,11 +101,7 @@ function normalizeRaiUrl(url) {
     const parsed = new URL(clean);
 
     if (!parsed.searchParams.get("output")) {
-      parsed.searchParams.set("output", "7");
-    }
-
-    if (!parsed.searchParams.get("forceUserAgent")) {
-      parsed.searchParams.set("forceUserAgent", "raiplayappletv");
+      parsed.searchParams.set("output", "62");
     }
 
     return parsed.toString();
@@ -120,6 +113,8 @@ function normalizeRaiUrl(url) {
 function pickStreamUrl(channel) {
   if (!channel) return null;
 
+  const type = String(channel.type || "").toLowerCase();
+
   if (
     channel.nativeHLS &&
     typeof channel.nativeHLS === "object" &&
@@ -128,7 +123,10 @@ function pickStreamUrl(channel) {
     return normalizeRaiUrl(channel.nativeHLS.url);
   }
 
-  if (isHttpUrl(channel.url) && !isZapprInternalUrl(channel.url)) {
+  if (
+    isHttpUrl(channel.url) &&
+    (type === "hls" || type === "dash" || type === "iframe" || type === "popup")
+  ) {
     return normalizeRaiUrl(channel.url);
   }
 
@@ -143,8 +141,7 @@ function pickStreamUrl(channel) {
   if (
     channel.fallback &&
     typeof channel.fallback === "object" &&
-    isHttpUrl(channel.fallback.url) &&
-    channel.fallback.url.includes("mediapolis.rai.it/relinker/relinkerServlet.htm")
+    isHttpUrl(channel.fallback.url)
   ) {
     return normalizeRaiUrl(channel.fallback.url);
   }
@@ -209,7 +206,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 async function loadSource(url, prefix) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/2.7.0"
+      "User-Agent": "Zappr-Geremia/2.8.0"
     }
   });
 
@@ -320,7 +317,10 @@ app.get("/stream/tv/:id.json", async (req, res) => {
       streams: [
         {
           title: channel.hd ? `${channel.name} HD` : channel.name,
-          url: channel.streamUrl
+          url: channel.streamUrl,
+          behaviorHints: {
+            notWebReady: true
+          }
         }
       ]
     });
@@ -328,6 +328,13 @@ app.get("/stream/tv/:id.json", async (req, res) => {
     console.error(error);
     sendJson(res, { streams: [] });
   }
+});
+
+app.options("*", (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.status(204).end();
 });
 
 module.exports = app;
