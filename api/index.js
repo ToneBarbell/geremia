@@ -18,7 +18,7 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "2.9.0",
+  version: "2.9.1",
   name: "Zappr Geremia",
   description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "meta", "stream"],
@@ -42,10 +42,14 @@ function normalizeName(name) {
     .replace(/^_+|_+$/g, "");
 }
 
-function buildId(channel, prefix = "zappr") {
-  if (channel.id) return `${prefix}_${normalizeName(channel.id)}`;
-  if (channel.name) return `${prefix}_${normalizeName(channel.name)}`;
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+function buildId(channel, prefix = "zappr", parentLcn = null) {
+  const lcn = channel.lcn ?? parentLcn ?? "x";
+  const base =
+    channel.id ||
+    channel.epg?.id ||
+    channel.name ||
+    "canale";
+  return `${prefix}_${lcn}_${normalizeName(base)}`;
 }
 
 function buildLogoUrl(logo) {
@@ -99,35 +103,26 @@ function normalizeRaiUrl(url) {
 
   try {
     const parsed = new URL(clean);
-
-    if (!parsed.searchParams.get("output")) {
-      parsed.searchParams.set("output", "62");
-    }
-
+    parsed.searchParams.set("output", "62");
     return parsed.toString();
   } catch {
     return clean;
   }
 }
 
-function pickStreamUrl(channel) {
+function pickRawPlayableUrl(channel) {
   if (!channel) return null;
-
-  const type = String(channel.type || "").toLowerCase();
 
   if (
     channel.nativeHLS &&
     typeof channel.nativeHLS === "object" &&
     isHttpUrl(channel.nativeHLS.url)
   ) {
-    return normalizeRaiUrl(channel.nativeHLS.url);
+    return channel.nativeHLS.url.trim();
   }
 
-  if (
-    isHttpUrl(channel.url) &&
-    (type === "hls" || type === "dash" || type === "iframe" || type === "popup")
-  ) {
-    return normalizeRaiUrl(channel.url);
+  if (isHttpUrl(channel.url)) {
+    return channel.url.trim();
   }
 
   if (
@@ -135,7 +130,7 @@ function pickStreamUrl(channel) {
     typeof channel.geoblock === "object" &&
     isHttpUrl(channel.geoblock.url)
   ) {
-    return normalizeRaiUrl(channel.geoblock.url);
+    return channel.geoblock.url.trim();
   }
 
   if (
@@ -143,16 +138,33 @@ function pickStreamUrl(channel) {
     typeof channel.fallback === "object" &&
     isHttpUrl(channel.fallback.url)
   ) {
-    return normalizeRaiUrl(channel.fallback.url);
+    return channel.fallback.url.trim();
   }
 
   return null;
 }
 
+function buildStreamUrl(channel) {
+  const rawUrl = pickRawPlayableUrl(channel);
+  if (!rawUrl) return null;
+
+  if (rawUrl.startsWith("zappr://")) return null;
+
+  if (rawUrl.includes("mediapolis.rai.it/relinker/relinkerServlet.htm")) {
+    return normalizeRaiUrl(rawUrl);
+  }
+
+  if (rawUrl.includes("/video/viewlivestreaming")) {
+    return rawUrl;
+  }
+
+  return rawUrl;
+}
+
 function isRealTvChannel(channel) {
   if (!channel || !channel.name) return false;
   if (isRadioChannel(channel)) return false;
-  return !!pickStreamUrl(channel);
+  return !!pickRawPlayableUrl(channel);
 }
 
 function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
@@ -162,21 +174,21 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
     if (!channel || !channel.name) continue;
 
     if (isRealTvChannel(channel)) {
-      const streamUrl = pickStreamUrl(channel);
+      const id = buildId(channel, prefix, parentLcn);
+      const streamUrl = buildStreamUrl(channel);
 
-      if (streamUrl) {
-        result.push({
-          id: buildId(channel, prefix),
-          type: "tv",
-          name: channel.name,
-          poster: buildPoster(channel),
-          background: buildBackground(channel),
-          logo: buildLogoUrl(channel.logo),
-          streamUrl,
-          lcn: channel.lcn ?? parentLcn ?? null,
-          hd: !!channel.hd
-        });
-      }
+      result.push({
+        id,
+        type: "tv",
+        name: channel.name,
+        poster: buildPoster(channel),
+        background: buildBackground(channel),
+        logo: buildLogoUrl(channel.logo),
+        streamUrl,
+        lcn: channel.lcn ?? parentLcn ?? null,
+        hd: !!channel.hd,
+        source: channel
+      });
     }
 
     if (Array.isArray(channel.channels) && channel.channels.length > 0) {
@@ -206,7 +218,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 async function loadSource(url, prefix) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/2.9.0"
+      "User-Agent": "Zappr-Geremia/2.9.1"
     }
   });
 
@@ -222,11 +234,9 @@ function dedupeChannels(channels) {
   const map = new Map();
 
   for (const channel of channels) {
-    if (!channel.streamUrl) continue;
-
-    const key = `${channel.id}__${channel.streamUrl}`;
-    if (!map.has(key)) {
-      map.set(key, channel);
+    if (!channel.id) continue;
+    if (!map.has(channel.id)) {
+      map.set(channel.id, channel);
     }
   }
 
@@ -246,10 +256,6 @@ async function loadChannels() {
   ]);
 
   return dedupeChannels([...nationalChannels, ...lombardiaChannels]);
-}
-
-function buildStreamUrl(channel) {
-  return channel && channel.streamUrl ? channel.streamUrl : null;
 }
 
 app.get("/", (req, res) => {
@@ -313,13 +319,7 @@ app.get("/stream/tv/:id.json", async (req, res) => {
     const channels = await loadChannels();
     const channel = channels.find((c) => c.id === req.params.id);
 
-    if (!channel) {
-      return sendJson(res, { streams: [] });
-    }
-
-    const streamUrl = buildStreamUrl(channel);
-
-    if (!streamUrl) {
+    if (!channel || !channel.streamUrl) {
       return sendJson(res, { streams: [] });
     }
 
@@ -327,7 +327,7 @@ app.get("/stream/tv/:id.json", async (req, res) => {
       streams: [
         {
           title: channel.hd ? `${channel.name} HD` : channel.name,
-          url: streamUrl,
+          url: channel.streamUrl,
           behaviorHints: {
             notWebReady: true
           }
@@ -337,68 +337,6 @@ app.get("/stream/tv/:id.json", async (req, res) => {
   } catch (error) {
     console.error(error);
     sendJson(res, { streams: [] });
-  }
-});
-
-app.get("/resolve", async (req, res) => {
-  try {
-    const raw = req.query.url;
-    const url = Array.isArray(raw) ? raw[0] : raw;
-
-    if (!url || typeof url !== "string") {
-      return sendJson(res, { error: "URL mancante." });
-    }
-
-    const cleanUrl = url.trim();
-
-    if (!isHttpUrl(cleanUrl)) {
-      return sendJson(res, { error: "URL non valido." });
-    }
-
-    if (cleanUrl.includes("mediapolis.rai.it/relinker/relinkerServlet.htm")) {
-      const resolvedUrl = normalizeRaiUrl(cleanUrl);
-
-      const response = await fetch(resolvedUrl);
-      if (!response.ok) {
-        return sendJson(res, { error: "Impossibile risolvere l'URL Rai." });
-      }
-
-      const data = await response.json();
-      const finalUrl = data && Array.isArray(data.video) && data.video[0] ? data.video[0] : null;
-
-      if (!finalUrl) {
-        return sendJson(res, { error: "Stream Rai non trovato." });
-      }
-
-      return sendJson(res, {
-        url: finalUrl
-      });
-    }
-
-    if (cleanUrl.includes("/video/viewlivestreaming")) {
-      const response = await fetch(cleanUrl);
-      if (!response.ok) {
-        return sendJson(res, { error: "Impossibile risolvere l'URL Babylon." });
-      }
-
-      const html = await response.text();
-      const match = html.match(/<source[^>]*src=["']([^"']+)["']/i);
-
-      if (!match || !match[1]) {
-        return sendJson(res, { error: "Stream Babylon non trovato." });
-      }
-
-      return sendJson(res, {
-        url: match[1]
-      });
-    }
-
-    return sendJson(res, {
-      url: cleanUrl
-    });
-  } catch (error) {
-    console.error(error);
-    sendJson(res, { error: "Errore durante la risoluzione dello stream." });
   }
 });
 
