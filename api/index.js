@@ -8,6 +8,9 @@ const LOMBARDIA_JSON_URL =
 const LOGOS_BASE_URL =
   "https://raw.githubusercontent.com/ZapprTV/channels/refs/heads/main/logos/";
 
+const RAI_HBBTV_UA = "HbbTV/1.6.1";
+const DEFAULT_FETCH_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
+
 function sendJson(res, data) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -18,7 +21,7 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "2.9.2",
+  version: "3.0.0",
   name: "Zappr Geremia",
   description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "meta", "stream"],
@@ -44,11 +47,7 @@ function normalizeName(name) {
 
 function buildId(channel, prefix = "zappr", parentLcn = null) {
   const lcn = channel.lcn ?? parentLcn ?? "x";
-  const base =
-    channel.id ||
-    channel.epg?.id ||
-    channel.name ||
-    "canale";
+  const base = channel.id || channel.epg?.id || channel.name || "canale";
   return `${prefix}_${lcn}_${normalizeName(base)}`;
 }
 
@@ -80,12 +79,10 @@ function extractChannels(data) {
 
 function isRadioChannel(channel) {
   if (!channel) return true;
-
   const type = String(channel.type || "").toLowerCase();
   if (type === "audio") return true;
   if (channel.radio === true) return true;
   if (channel.isRadio === true) return true;
-
   return false;
 }
 
@@ -93,21 +90,8 @@ function isHttpUrl(url) {
   return typeof url === "string" && /^https?:\/\//i.test(url.trim());
 }
 
-function normalizeRaiUrl(url) {
-  if (!isHttpUrl(url)) return null;
-
-  const clean = url.trim();
-  if (!clean.includes("mediapolis.rai.it/relinker/relinkerServlet.htm")) {
-    return clean;
-  }
-
-  try {
-    const parsed = new URL(clean);
-    parsed.searchParams.set("output", "16");
-    return parsed.toString();
-  } catch {
-    return clean;
-  }
+function isRaiRelinkerUrl(url) {
+  return isHttpUrl(url) && url.includes("mediapolis.rai.it/relinker/relinkerServlet.htm");
 }
 
 function pickRawPlayableUrl(channel) {
@@ -147,17 +131,7 @@ function pickRawPlayableUrl(channel) {
 function buildStreamUrl(channel) {
   const rawUrl = pickRawPlayableUrl(channel);
   if (!rawUrl) return null;
-
   if (rawUrl.startsWith("zappr://")) return null;
-
-  if (rawUrl.includes("mediapolis.rai.it/relinker/relinkerServlet.htm")) {
-    return normalizeRaiUrl(rawUrl);
-  }
-
-  if (rawUrl.includes("/video/viewlivestreaming")) {
-    return rawUrl;
-  }
-
   return rawUrl;
 }
 
@@ -218,7 +192,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 async function loadSource(url, prefix) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/2.9.2"
+      "User-Agent": "Zappr-Geremia/3.0.0"
     }
   });
 
@@ -256,6 +230,90 @@ async function loadChannels() {
   ]);
 
   return dedupeChannels([...nationalChannels, ...lombardiaChannels]);
+}
+
+function addOrReplaceParam(url, key, value) {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set(key, value);
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+async function fetchTextWithHeaders(url, headers = {}, redirect = "follow") {
+  const response = await fetch(url, {
+    method: "GET",
+    redirect,
+    headers
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} su ${url}`);
+  }
+
+  return await response.text();
+}
+
+function extractFirstHttpUrl(text) {
+  if (!text) return null;
+  const match = text.match(/https?:\/\/[^\s"'<>]+/i);
+  return match ? match[0] : null;
+}
+
+function decodeHtmlEntities(str) {
+  return String(str || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x2F;/g, "/")
+    .replace(/&#47;/g, "/");
+}
+
+async function resolveRaiStream(url) {
+  const baseUrl = addOrReplaceParam(url, "forceUserAgent", "raiplayappletv");
+  const candidateUrls = [
+    addOrReplaceParam(baseUrl, "output", "7"),
+    addOrReplaceParam(baseUrl, "output", "16"),
+    addOrReplaceParam(baseUrl, "output", "62"),
+    baseUrl
+  ];
+
+  const headers = {
+    "User-Agent": RAI_HBBTV_UA,
+    "Accept": "*/*",
+    "Referer": "https://www.raiplay.it/",
+    "Origin": "https://www.raiplay.it"
+  };
+
+  for (const candidate of candidateUrls) {
+    try {
+      const text = await fetchTextWithHeaders(candidate, headers, "follow");
+      const clean = decodeHtmlEntities(text);
+
+      let finalUrl = null;
+
+      try {
+        const json = JSON.parse(clean);
+        finalUrl =
+          json.video?.contentUrl ||
+          json.videoURL ||
+          json.url ||
+          json.mediaUri ||
+          json.stream ||
+          null;
+      } catch {
+        finalUrl = extractFirstHttpUrl(clean);
+      }
+
+      if (finalUrl && isHttpUrl(finalUrl)) {
+        return finalUrl;
+      }
+    } catch (_) {
+    }
+  }
+
+  throw new Error("Impossibile risolvere stream Rai");
 }
 
 app.get("/", (req, res) => {
@@ -323,11 +381,17 @@ app.get("/stream/tv/:id.json", async (req, res) => {
       return sendJson(res, { streams: [] });
     }
 
+    let finalUrl = channel.streamUrl;
+
+    if (isRaiRelinkerUrl(finalUrl)) {
+      finalUrl = await resolveRaiStream(finalUrl);
+    }
+
     sendJson(res, {
       streams: [
         {
           title: channel.hd ? `${channel.name} HD` : channel.name,
-          url: channel.streamUrl,
+          url: finalUrl,
           behaviorHints: {
             notWebReady: true
           }
