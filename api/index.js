@@ -4,9 +4,6 @@ const app = express();
 const NATIONAL_JSON_URL = "https://raw.githubusercontent.com/ZapprTV/channels/refs/heads/main/it/dtt/national.json";
 const LOMBARDIA_JSON_URL = "https://raw.githubusercontent.com/ZapprTV/channels/refs/heads/main/it/dtt/regional/lombardia.json";
 const LOGOS_BASE_URL = "https://raw.githubusercontent.com/ZapprTV/channels/refs/heads/main/logos/";
-const VERCEL_PROXY = "https://vercel-api.zappr.stream";
-const CF_PROXY = "https://cloudflare-api.zappr.stream";
-const STREAMLINK_PROXY = "https://streamlink.zappr.stream/default/";
 
 function sendJson(res, data) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -18,16 +15,28 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "3.0.2",
+  version: "3.0.3",
   name: "Zappr Geremia",
-  description: "Canali Zappr dinamici nazionali + Lombardia (Rai fix)",
+  description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "meta", "stream"],
   types: ["tv"],
-  catalogs: [{ type: "tv", id: "zappr_tv", name: "Zappr TV Lombardia + Nazionali" }]
+  catalogs: [
+    {
+      type: "tv",
+      id: "zappr_tv",
+      name: "Zappr TV Lombardia + Nazionali"
+    }
+  ]
 };
 
 function normalizeName(name) {
-  return String(name || "").toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return String(name || "")
+    .toLowerCase()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 function buildId(channel, prefix = "zappr", parentLcn = null) {
@@ -81,34 +90,35 @@ function isIframeOnly(channel) {
 
 function pickRawPlayableUrl(channel) {
   if (!channel) return null;
-  if (channel.nativeHLS && typeof channel.nativeHLS === "object" && isHttpUrl(channel.nativeHLS.url)) return channel.nativeHLS.url.trim();
-  if (isHttpUrl(channel.url)) return channel.url.trim();
-  if (channel.geoblock && typeof channel.geoblock === "object" && isHttpUrl(channel.geoblock.url)) return channel.geoblock.url.trim();
-  if (channel.fallback && typeof channel.fallback === "object" && isHttpUrl(channel.fallback.url)) return channel.fallback.url.trim();
-  return null;
-}
 
-function getProxyUrl(channelId, channelName) {
-  const isRai = channelName.toLowerCase().includes('rai');
-  const proxyBase = isRai ? VERCEL_PROXY : CF_PROXY;
-  return `${proxyBase}/${channelId}`;
-}
-
-async function getProxiedStream(channelId, channelName, rawUrl) {
-  // Prova Zappr API proxy
-  const proxyUrl = getProxyUrl(channelId, channelName);
-  try {
-    const res = await fetch(proxyUrl);
-    if (res.ok) {
-      const data = await res.text();
-      if (isHttpUrl(data)) return data.trim();
-    }
-  } catch {}
-
-  // Fallback streamlink
-  if (rawUrl && isHttpUrl(rawUrl)) {
-    return `${STREAMLINK_PROXY}${Buffer.from(rawUrl).toString('base64')}`;
+  if (
+    channel.nativeHLS &&
+    typeof channel.nativeHLS === "object" &&
+    isHttpUrl(channel.nativeHLS.url)
+  ) {
+    return channel.nativeHLS.url.trim();
   }
+
+  if (isHttpUrl(channel.url)) {
+    return channel.url.trim();
+  }
+
+  if (
+    channel.geoblock &&
+    typeof channel.geoblock === "object" &&
+    isHttpUrl(channel.geoblock.url)
+  ) {
+    return channel.geoblock.url.trim();
+  }
+
+  if (
+    channel.fallback &&
+    typeof channel.fallback === "object" &&
+    isHttpUrl(channel.fallback.url)
+  ) {
+    return channel.fallback.url.trim();
+  }
+
   return null;
 }
 
@@ -120,16 +130,19 @@ function buildStreamUrl(channel) {
 function isRealTvChannel(channel) {
   if (!channel || !channel.name) return false;
   if (isRadioChannel(channel)) return false;
-  return !!buildStreamUrl(channel) || channel.id;  // Aggiunto per proxy
+  return !!buildStreamUrl(channel);
 }
 
 function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
   const result = [];
+
   for (const channel of channels) {
     if (!channel || !channel.name) continue;
+
     if (isRealTvChannel(channel)) {
       const id = buildId(channel, prefix, parentLcn);
       const streamUrl = buildStreamUrl(channel);
+
       result.push({
         id,
         type: "tv",
@@ -143,131 +156,9 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
         source: channel
       });
     }
+
     if (Array.isArray(channel.channels) && channel.channels.length > 0) {
-      result.push(...flattenChannels(channel.channels, prefix, channel.lcn ?? parentLcn ?? null));
-    }
-    if (Array.isArray(channel.hbbtv) && channel.hbbtv.length > 0) {
-      result.push(...flattenChannels(channel.hbbtv, prefix, channel.lcn ?? parentLcn ?? null));
-    }
-  }
-  return result;
-}
-
-async function loadSource(url, prefix) {
-  const response = await fetch(url, { headers: { "User-Agent": "Zappr-Geremia/3.0.2" } });
-  if (!response.ok) throw new Error(`Errore ${response.status} su ${url}`);
-  const data = await response.json();
-  return flattenChannels(extractChannels(data), prefix);
-}
-
-function dedupeChannels(channels) {
-  const map = new Map();
-  for (const channel of channels) {
-    if (!channel.id) continue;
-    if (!map.has(channel.id)) map.set(channel.id, channel);
-  }
-  return Array.from(map.values()).sort((a, b) => {
-    const lcnA = a.lcn ?? 999999;
-    const lcnB = b.lcn ?? 999999;
-    if (lcnA !== lcnB) return lcnA - lcnB;
-    return a.name.localeCompare(b.name, "it");
-  });
-}
-
-async function loadChannels() {
-  const [nationalChannels, lombardiaChannels] = await Promise.all([
-    loadSource(NATIONAL_JSON_URL, "zappr"),
-    loadSource(LOMBARDIA_JSON_URL, "zappr")
-  ]);
-  return dedupeChannels([...nationalChannels, ...lombardiaChannels]);
-}
-
-app.get("/", (req, res) => res.redirect("/manifest.json"));
-
-app.get("/manifest.json", (req, res) => sendJson(res, manifest));
-
-app.get("/catalog/tv/zappr_tv.json", async (req, res) => {
-  try {
-    const channels = await loadChannels();
-    sendJson(res, {
-      metas: channels.map((channel) => ({
-        id: channel.id,
-        type: "tv",
-        name: channel.lcn ? `${channel.lcn} - ${channel.name}` : channel.name,
-        poster: channel.poster,
-        background: channel.background,
-        logo: channel.logo,
-        posterShape: "poster"
-      }))
-    });
-  } catch (error) {
-    console.error(error);
-    sendJson(res, { metas: [] });
-  }
-});
-
-app.get("/meta/tv/:id.json", async (req, res) => {
-  try {
-    const channels = await loadChannels();
-    const channel = channels.find((c) => c.id === req.params.id);
-    if (!channel) return sendJson(res, { meta: null });
-    sendJson(res, {
-      meta: {
-        id: channel.id,
-        type: "tv",
-        name: channel.lcn ? `${channel.lcn} - ${channel.name}` : channel.name,
-        poster: channel.poster,
-        background: channel.background,
-        logo: channel.logo,
-        posterShape: "poster",
-        description: `Canale TV live: ${channel.name}`
-      }
-    });
-  } catch (error) {
-    console.error(error);
-    sendJson(res, { meta: null });
-  }
-});
-
-app.get("/stream/tv/:id.json", async (req, res) => {
-  try {
-    const channels = await loadChannels();
-    const channel = channels.find((c) => c.id === req.params.id);
-    if (!channel) return sendJson(res, { streams: [] });
-
-    let streams = [];
-    const rawUrl = channel.streamUrl;
-    const channelId = channel.source.id || channel.id;
-
-    // Proxy Zappr API (fix Rai)
-    const proxyStream = await getProxiedStream(channelId, channel.name, rawUrl);
-    if (proxyStream) {
-      streams.push({
-        title: channel.hd ? `${channel.name} HD Proxy` : `${channel.name} Proxy`,
-        url: proxyStream,
-        behaviorHints: { notWebReady: true }
-      });
-    } else if (rawUrl) {
-      // Direct fallback
-      streams.push({
-        title: channel.hd ? `${channel.name} HD` : channel.name,
-        url: rawUrl,
-        behaviorHints: { notWebReady: true }
-      });
-    }
-
-    sendJson(res, { streams });
-  } catch (error) {
-    console.error(error);
-    sendJson(res, { streams: [] });
-  }
-});
-
-app.options("*", (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.status(204).end();
-});
-
-module.exports = app;
+      result.push(
+        ...flattenChannels(
+          channel.channels,
+          
