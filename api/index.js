@@ -15,7 +15,7 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "3.0.5",
+  version: "3.0.6",
   name: "Zappr Geremia",
   description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "meta", "stream"],
@@ -88,6 +88,23 @@ function isIframeOnly(channel) {
   return String(channel.type || "").toLowerCase() === "iframe";
 }
 
+function buildRaiRelinkerUrlFromIframeUrl(url) {
+  if (!isHttpUrl(url)) return null;
+
+  try {
+    const parsed = new URL(url);
+    const videoURL = parsed.searchParams.get("videoURL");
+    const cont = parsed.searchParams.get("cont");
+
+    if (!videoURL || !cont) return null;
+
+    const base = videoURL.replace(/\/+$/, "");
+    return `${base}?cont=${encodeURIComponent(cont)}&output=16`;
+  } catch {
+    return null;
+  }
+}
+
 function pickRawPlayableUrl(channel) {
   if (!channel) return null;
 
@@ -99,7 +116,14 @@ function pickRawPlayableUrl(channel) {
     return channel.nativeHLS.url.trim();
   }
 
-  if (isHttpUrl(channel.url) && !isIframeOnly(channel)) {
+  const type = String(channel.type || "").toLowerCase();
+
+  if (type === "iframe") {
+    const raiRelinker = buildRaiRelinkerUrlFromIframeUrl(channel.url);
+    if (raiRelinker) return raiRelinker;
+  }
+
+  if (isHttpUrl(channel.url) && type !== "iframe") {
     return channel.url.trim();
   }
 
@@ -114,10 +138,18 @@ function pickRawPlayableUrl(channel) {
   if (
     channel.fallback &&
     typeof channel.fallback === "object" &&
-    isHttpUrl(channel.fallback.url) &&
-    String(channel.fallback.type || "").toLowerCase() !== "iframe"
+    isHttpUrl(channel.fallback.url)
   ) {
-    return channel.fallback.url.trim();
+    const fallbackType = String(channel.fallback.type || "").toLowerCase();
+
+    if (fallbackType === "iframe") {
+      const raiRelinker = buildRaiRelinkerUrlFromIframeUrl(channel.fallback.url);
+      if (raiRelinker) return raiRelinker;
+    }
+
+    if (fallbackType !== "iframe") {
+      return channel.fallback.url.trim();
+    }
   }
 
   return null;
@@ -130,12 +162,7 @@ function buildStreamUrl(channel) {
 function isVisibleTvChannel(channel) {
   if (!channel || !channel.name) return false;
   if (isRadioChannel(channel)) return false;
-
-  if (buildStreamUrl(channel)) return true;
-  if (isIframeOnly(channel)) return true;
-  if (channel.fallback && String(channel.fallback.type || "").toLowerCase() === "iframe") return true;
-
-  return false;
+  return !!buildStreamUrl(channel) || isIframeOnly(channel);
 }
 
 function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
@@ -190,7 +217,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 async function loadSource(url, prefix) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/3.0.5"
+      "User-Agent": "Zappr-Geremia/3.0.6"
     }
   });
 
@@ -294,28 +321,24 @@ app.get("/stream/tv/:id.json", async (req, res) => {
     const channels = await loadChannels();
     const channel = channels.find((c) => c.id === req.params.id);
 
-    if (!channel) {
+    if (!channel || !channel.streamUrl) {
       return sendJson(res, { streams: [] });
     }
 
-    if (channel.streamUrl) {
-      return sendJson(res, {
-        streams: [
-          {
-            title: channel.hd ? `${channel.name} HD` : channel.name,
-            url: channel.streamUrl,
-            behaviorHints: {
-              notWebReady: true
-            }
+    return sendJson(res, {
+      streams: [
+        {
+          title: channel.hd ? `${channel.name} HD` : channel.name,
+          url: channel.streamUrl,
+          behaviorHints: {
+            notWebReady: true
           }
-        ]
-      });
-    }
-
-    return sendJson(res, { streams: [] });
+        }
+      ]
+    });
   } catch (error) {
     console.error(error);
-    sendJson(res, { streams: [] });
+    return sendJson(res, { streams: [] });
   }
 });
 
