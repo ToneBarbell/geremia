@@ -15,7 +15,7 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "3.0.3",
+  version: "3.0.5",
   name: "Zappr Geremia",
   description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "meta", "stream"],
@@ -41,7 +41,7 @@ function normalizeName(name) {
 
 function buildId(channel, prefix = "zappr", parentLcn = null) {
   const lcn = channel.lcn ?? parentLcn ?? "x";
-  const base = channel.id || channel.epg?.id || channel.name || "canale";
+  const base = channel.id || (channel.epg && channel.epg.id) || channel.name || "canale";
   return `${prefix}_${lcn}_${normalizeName(base)}`;
 }
 
@@ -99,7 +99,7 @@ function pickRawPlayableUrl(channel) {
     return channel.nativeHLS.url.trim();
   }
 
-  if (isHttpUrl(channel.url)) {
+  if (isHttpUrl(channel.url) && !isIframeOnly(channel)) {
     return channel.url.trim();
   }
 
@@ -114,7 +114,8 @@ function pickRawPlayableUrl(channel) {
   if (
     channel.fallback &&
     typeof channel.fallback === "object" &&
-    isHttpUrl(channel.fallback.url)
+    isHttpUrl(channel.fallback.url) &&
+    String(channel.fallback.type || "").toLowerCase() !== "iframe"
   ) {
     return channel.fallback.url.trim();
   }
@@ -123,14 +124,18 @@ function pickRawPlayableUrl(channel) {
 }
 
 function buildStreamUrl(channel) {
-  if (isIframeOnly(channel)) return null;
   return pickRawPlayableUrl(channel);
 }
 
-function isRealTvChannel(channel) {
+function isVisibleTvChannel(channel) {
   if (!channel || !channel.name) return false;
   if (isRadioChannel(channel)) return false;
-  return !!buildStreamUrl(channel);
+
+  if (buildStreamUrl(channel)) return true;
+  if (isIframeOnly(channel)) return true;
+  if (channel.fallback && String(channel.fallback.type || "").toLowerCase() === "iframe") return true;
+
+  return false;
 }
 
 function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
@@ -139,7 +144,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
   for (const channel of channels) {
     if (!channel || !channel.name) continue;
 
-    if (isRealTvChannel(channel)) {
+    if (isVisibleTvChannel(channel)) {
       const id = buildId(channel, prefix, parentLcn);
       const streamUrl = buildStreamUrl(channel);
 
@@ -151,6 +156,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
         background: buildBackground(channel),
         logo: buildLogoUrl(channel.logo),
         streamUrl,
+        iframeOnly: isIframeOnly(channel),
         lcn: channel.lcn ?? parentLcn ?? null,
         hd: !!channel.hd,
         source: channel
@@ -184,7 +190,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 async function loadSource(url, prefix) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/3.0.3"
+      "User-Agent": "Zappr-Geremia/3.0.5"
     }
   });
 
@@ -209,7 +215,11 @@ function dedupeChannels(channels) {
   return Array.from(map.values()).sort((a, b) => {
     const lcnA = a.lcn ?? 999999;
     const lcnB = b.lcn ?? 999999;
-    if (lcnA !== lcnB) return lcnA - lcnB;
+
+    if (lcnA !== lcnB) {
+      return lcnA - lcnB;
+    }
+
     return a.name.localeCompare(b.name, "it");
   });
 }
@@ -284,21 +294,25 @@ app.get("/stream/tv/:id.json", async (req, res) => {
     const channels = await loadChannels();
     const channel = channels.find((c) => c.id === req.params.id);
 
-    if (!channel || !channel.streamUrl) {
+    if (!channel) {
       return sendJson(res, { streams: [] });
     }
 
-    sendJson(res, {
-      streams: [
-        {
-          title: channel.hd ? `${channel.name} HD` : channel.name,
-          url: channel.streamUrl,
-          behaviorHints: {
-            notWebReady: true
+    if (channel.streamUrl) {
+      return sendJson(res, {
+        streams: [
+          {
+            title: channel.hd ? `${channel.name} HD` : channel.name,
+            url: channel.streamUrl,
+            behaviorHints: {
+              notWebReady: true
+            }
           }
-        }
-      ]
-    });
+        ]
+      });
+    }
+
+    return sendJson(res, { streams: [] });
   } catch (error) {
     console.error(error);
     sendJson(res, { streams: [] });
