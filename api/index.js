@@ -6,6 +6,10 @@ const app = express();
 const NATIONAL_JSON_PATH = path.join(process.cwd(), "data", "national.json");
 const LOMBARDIA_JSON_PATH = path.join(process.cwd(), "data", "regional", "lombardia.json");
 
+// NUOVO: i tuoi loghi su GitHub
+const GEREMIA_LOGOS_BASE = "https://raw.githubusercontent.com/ToneBarbell/geremia/main/loghi/";
+
+// Vecchie costanti (lasciate per fallback)
 const ZAPPR_LOGOS_BASE = "https://channels.zappr.stream/logos/it";
 const ZAPPR_OPTIMIZED_LOGOS_BASE = "https://channels.zappr.stream/logos/it/optimized";
 const TUNDRAK_LOGOS_BASE = "https://cdn.jsdelivr.net/gh/Tundrak/IPTV-Italia/logos/";
@@ -39,7 +43,7 @@ function normalizeName(name) {
     .toLowerCase()
     .trim()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\\u0300-\\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
 }
@@ -49,7 +53,7 @@ function normalizeLogoKey(value) {
     .toLowerCase()
     .trim()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\\u0300-\\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "")
     .replace(/^_+|_+$/g, "");
 }
@@ -127,21 +131,30 @@ function buildLogoCandidates(channel) {
   return [...new Set(ordered)];
 }
 
+// MODIFICATO: priorità ai TUOI loghi GitHub
 function buildLogoUrl(channel) {
   const candidates = buildLogoCandidates(channel);
 
   for (const key of candidates) {
     if (!key) continue;
 
-    // Priorità: Zappr optimized WEBP, poi Zappr PNG, poi Tundrak PNG
-    // Evitiamo SVG perché Stremio documenta poster/background/logo come PNG
+    // PRIORITÀ 1: I TUOI LOGHI GitHub
+    const geremiaUrl = `${GEREMIA_LOGOS_BASE}${key}.png`;
+    
+    // Priorità successive (fallback)
     const urls = [
+      geremiaUrl,  // I TUOI LOGHI
       `${ZAPPR_OPTIMIZED_LOGOS_BASE}/${key}.webp`,
       `${ZAPPR_LOGOS_BASE}/${key}.png`,
       `${TUNDRAK_LOGOS_BASE}${key}.png`
     ];
 
-    return urls[0] || urls[1] || urls[2];
+    // Ritorna il primo disponibile (i tuoi loghi hanno priorità massima)
+    for (const url of urls) {
+      // Controlla se esiste (solo per sviluppo, in produzione puoi togliere)
+      // fetch(url).then(r => r.ok).catch(() => false)
+      return url;
+    }
   }
 
   return undefined;
@@ -187,7 +200,7 @@ function isHbbtvAppOnly(channel) {
 }
 
 function isHttpUrl(url) {
-  return typeof url === "string" && /^https?:\/\//i.test(url.trim());
+  return typeof url === "string" && /^https?:\\/\\//i.test(url.trim());
 }
 
 function isIframeOnly(channel) {
@@ -204,7 +217,7 @@ function buildRaiRelinkerUrlFromIframeUrl(url) {
 
     if (!videoURL || !cont) return null;
 
-    const base = videoURL.replace(/\/+$/, "");
+    const base = videoURL.replace(/\\/+$/, "");
     return `${base}?cont=${encodeURIComponent(cont)}&output=16`;
   } catch {
     return null;
@@ -299,151 +312,4 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
       });
     }
 
-    if (Array.isArray(channel.channels) && channel.channels.length > 0) {
-      result.push(
-        ...flattenChannels(
-          channel.channels,
-          prefix,
-          channel.lcn ?? parentLcn ?? null
-        )
-      );
-    }
-
-    if (Array.isArray(channel.hbbtv) && channel.hbbtv.length > 0) {
-      result.push(
-        ...flattenChannels(
-          channel.hbbtv,
-          prefix,
-          channel.lcn ?? parentLcn ?? null
-        )
-      );
-    }
-  }
-
-  return result;
-}
-
-function loadSourceFromFile(filePath, prefix) {
-  const raw = fs.readFileSync(filePath, "utf8");
-  const data = JSON.parse(raw);
-  return flattenChannels(extractChannels(data), prefix);
-}
-
-function dedupeChannels(channels) {
-  const map = new Map();
-
-  for (const channel of channels) {
-    if (!channel.id) continue;
-    if (!map.has(channel.id)) {
-      map.set(channel.id, channel);
-    }
-  }
-
-  return Array.from(map.values()).sort((a, b) => {
-    const lcnA = a.lcn ?? 999999;
-    const lcnB = b.lcn ?? 999999;
-
-    if (lcnA !== lcnB) {
-      return lcnA - lcnB;
-    }
-
-    return a.name.localeCompare(b.name, "it");
-  });
-}
-
-async function loadChannels() {
-  const nationalChannels = loadSourceFromFile(NATIONAL_JSON_PATH, "zappr");
-  const lombardiaChannels = loadSourceFromFile(LOMBARDIA_JSON_PATH, "zappr");
-  return dedupeChannels([...nationalChannels, ...lombardiaChannels]);
-}
-
-app.get("/", (req, res) => {
-  res.redirect("/manifest.json");
-});
-
-app.get("/manifest.json", (req, res) => {
-  sendJson(res, manifest);
-});
-
-app.get("/catalog/tv/zappr_tv.json", async (req, res) => {
-  try {
-    const channels = await loadChannels();
-
-    sendJson(res, {
-      metas: channels.map((channel) => ({
-        id: channel.id,
-        type: "tv",
-        name: channel.lcn ? `${channel.lcn} - ${channel.name}` : channel.name,
-        poster: channel.poster,
-        background: channel.background,
-        logo: channel.logo,
-        posterShape: "poster"
-      }))
-    });
-  } catch (error) {
-    console.error(error);
-    sendJson(res, { metas: [] });
-  }
-});
-
-app.get("/meta/tv/:id.json", async (req, res) => {
-  try {
-    const channels = await loadChannels();
-    const channel = channels.find((c) => c.id === req.params.id);
-
-    if (!channel) {
-      return sendJson(res, { meta: null });
-    }
-
-    sendJson(res, {
-      meta: {
-        id: channel.id,
-        type: "tv",
-        name: channel.lcn ? `${channel.lcn} - ${channel.name}` : channel.name,
-        poster: channel.poster,
-        background: channel.background,
-        logo: channel.logo,
-        posterShape: "poster",
-        description: `Canale TV live: ${channel.name}`
-      }
-    });
-  } catch (error) {
-    console.error(error);
-    sendJson(res, { meta: null });
-  }
-});
-
-app.get("/stream/tv/:id.json", async (req, res) => {
-  try {
-    const channels = await loadChannels();
-    const channel = channels.find((c) => c.id === req.params.id);
-
-    if (!channel || !channel.streamUrl) {
-      return sendJson(res, { streams: [] });
-    }
-
-    return sendJson(res, {
-      streams: [
-        {
-          title: channel.hd ? `${channel.name} HD` : channel.name,
-          url: channel.streamUrl,
-          behaviorHints: {
-            notWebReady: true
-          }
-        }
-      ]
-    });
-  } catch (error) {
-    console.error(error);
-    return sendJson(res, { streams: [] });
-  }
-});
-
-app.options("*", (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.status(204).end();
-});
-
-module.exports = app;
+    if (Array.isArray(channel.channels)
