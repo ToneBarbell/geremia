@@ -18,8 +18,8 @@ function sendJson(res, data) {
 const manifest = {
   id: "org.zapprtv.geremia",
   version: "3.1.0",
-  name: "Zappr Geremia",
-  description: "Canali TV nazionali + Lombardia con loghi GitHub",
+  name: "Tv By Sbogia",
+  description: "Canali TV nazionali e regionali Lombardia",
   resources: ["catalog", "meta", "stream"],
   types: ["tv"],
   catalogs: [
