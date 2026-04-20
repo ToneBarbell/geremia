@@ -3,7 +3,7 @@ const app = express();
 
 const NATIONAL_JSON_URL = "https://raw.githubusercontent.com/ZapprTV/channels/refs/heads/main/it/dtt/national.json";
 const LOMBARDIA_JSON_URL = "https://raw.githubusercontent.com/ZapprTV/channels/refs/heads/main/it/dtt/regional/lombardia.json";
-const LOGOS_BASE_URL = "https://raw.githubusercontent.com/ZapprTV/channels/refs/heads/main/logos/";
+const TUNDRAK_LOGOS_BASE = "https://cdn.jsdelivr.net/gh/Tundrak/IPTV-Italia/logos/";
 
 function sendJson(res, data) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -15,9 +15,9 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "3.0.6",
+  version: "3.0.7",
   name: "Zappr Geremia",
-  description: "Canali Zappr dinamici nazionali + Lombardia",
+  description: "Canali Zappr dinamici nazionali + Lombardia - Loghi Tundrak",
   resources: ["catalog", "meta", "stream"],
   types: ["tv"],
   catalogs: [
@@ -45,10 +45,56 @@ function buildId(channel, prefix = "zappr", parentLcn = null) {
   return `${prefix}_${lcn}_${normalizeName(base)}`;
 }
 
-function buildLogoUrl(logo) {
-  if (!logo) return undefined;
-  if (logo.startsWith("http://") || logo.startsWith("https://")) return logo;
-  return `${LOGOS_BASE_URL}${logo}`;
+function buildLogoUrlTundrak(channelName) {
+  if (!channelName) return undefined;
+
+  const normalized = normalizeName(channelName).replace(/_/g, "");
+  const mapping = {
+    rai1: "rai1",
+    rai2: "rai2",
+    rai3: "rai3",
+    rai4: "rai4",
+    rai5: "rai5",
+    raimovie: "raimovie",
+    raipremium: "raipremium",
+    raistoria: "raistoria",
+    raiscuola: "raiscuola",
+    raisport: "raisport",
+    raigulp: "raigulp",
+    raiyoyo: "raiyoyo",
+    rainews24: "rainews24",
+    rete4: "rete4",
+    canale5: "canale5",
+    italia1: "italia1",
+    la7: "la7",
+    tv8: "tv8",
+    nove: "nove",
+    discovery: "discovery",
+    focus: "focus",
+    giallo: "giallo",
+    topcrime: "topcrime",
+    boing: "boing",
+    k2: "k2",
+    cartoonito: "cartoonito",
+    frisbee: "frisbee",
+    realtime: "realtime",
+    dmax: "dmax",
+    la5: "la5",
+    cine34: "cine34",
+    iris: "iris",
+    mediasetextra: "mediasetextra",
+    la7cinema: "la7cinema",
+    la7d: "la7d",
+    skytg24: "skytg24",
+    tgcom24: "tgcom24",
+    qvc: "qvc",
+    hgtv: "hgtv",
+    foodnetwork: "foodnetwork",
+    supertennis: "supertennis"
+  };
+
+  const key = mapping[normalized] || normalized;
+  return `${TUNDRAK_LOGOS_BASE}${key}.png`;
 }
 
 function buildTextImage(text, bg = "F3F4F6", fg = "111827") {
@@ -77,6 +123,21 @@ function isRadioChannel(channel) {
   if (type === "audio") return true;
   if (channel.radio === true) return true;
   if (channel.isRadio === true) return true;
+  return false;
+}
+
+function isAdultOrShopping(channel) {
+  if (!channel) return false;
+  if (channel.adult === true) return true;
+  const name = String(channel.name || "").toLowerCase();
+  if (name.includes("adult") || name.includes("shopping") || name.includes("promo")) return true;
+  return false;
+}
+
+function isHbbtvAppOnly(channel) {
+  if (!channel) return false;
+  if (channel.hbbtvapp === true) return true;
+  if (channel.hbbtvmosaic === true) return true;
   return false;
 }
 
@@ -162,6 +223,8 @@ function buildStreamUrl(channel) {
 function isVisibleTvChannel(channel) {
   if (!channel || !channel.name) return false;
   if (isRadioChannel(channel)) return false;
+  if (isAdultOrShopping(channel)) return false;
+  if (isHbbtvAppOnly(channel)) return false;
   return !!buildStreamUrl(channel) || isIframeOnly(channel);
 }
 
@@ -181,7 +244,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
         name: channel.name,
         poster: buildPoster(channel),
         background: buildBackground(channel),
-        logo: buildLogoUrl(channel.logo),
+        logo: buildLogoUrlTundrak(channel.name),
         streamUrl,
         iframeOnly: isIframeOnly(channel),
         lcn: channel.lcn ?? parentLcn ?? null,
@@ -217,7 +280,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 async function loadSource(url, prefix) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/3.0.6"
+      "User-Agent": "Zappr-Geremia/3.0.7"
     }
   });
 
