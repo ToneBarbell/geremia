@@ -15,7 +15,7 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "3.0.7",
+  version: "3.0.8",
   name: "Zappr Geremia",
   description: "Canali Zappr dinamici nazionali + Lombardia - Loghi Tundrak",
   resources: ["catalog", "meta", "stream"],
@@ -95,19 +95,6 @@ function buildLogoUrlTundrak(channelName) {
 
   const key = mapping[normalized] || normalized;
   return `${TUNDRAK_LOGOS_BASE}${key}.png`;
-}
-
-function buildTextImage(text, bg = "F3F4F6", fg = "111827") {
-  const cleanText = encodeURIComponent(String(text || "Canale TV").slice(0, 40));
-  return `https://placehold.co/300x450/${bg}/${fg}.png?text=${cleanText}`;
-}
-
-function buildPoster(channel) {
-  return buildTextImage(channel.name || "Canale TV", "F3F4F6", "111827");
-}
-
-function buildBackground(channel) {
-  return buildTextImage(channel.name || "Canale TV", "E5E7EB", "111827");
 }
 
 function extractChannels(data) {
@@ -237,14 +224,15 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
     if (isVisibleTvChannel(channel)) {
       const id = buildId(channel, prefix, parentLcn);
       const streamUrl = buildStreamUrl(channel);
+      const logo = buildLogoUrlTundrak(channel.name);
 
       result.push({
         id,
         type: "tv",
         name: channel.name,
-        poster: buildPoster(channel),
-        background: buildBackground(channel),
-        logo: buildLogoUrlTundrak(channel.name),
+        poster: logo,
+        background: logo,
+        logo: logo,
         streamUrl,
         iframeOnly: isIframeOnly(channel),
         lcn: channel.lcn ?? parentLcn ?? null,
@@ -280,7 +268,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
 async function loadSource(url, prefix) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Zappr-Geremia/3.0.7"
+      "User-Agent": "Zappr-Geremia/3.0.8"
     }
   });
 
