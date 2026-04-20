@@ -5,14 +5,7 @@ const app = express();
 
 const NATIONAL_JSON_PATH = path.join(process.cwd(), "data", "national.json");
 const LOMBARDIA_JSON_PATH = path.join(process.cwd(), "data", "regional", "lombardia.json");
-
-// NUOVO: i tuoi loghi su GitHub
-const GEREMIA_LOGOS_BASE = "https://raw.githubusercontent.com/ToneBarbell/geremia/main/loghi/";
-
-// Vecchie costanti (lasciate per fallback)
-const ZAPPR_LOGOS_BASE = "https://channels.zappr.stream/logos/it";
-const ZAPPR_OPTIMIZED_LOGOS_BASE = "https://channels.zappr.stream/logos/it/optimized";
-const TUNDRAK_LOGOS_BASE = "https://cdn.jsdelivr.net/gh/Tundrak/IPTV-Italia/logos/";
+const LOGOS_BASE = "https://raw.githubusercontent.com/ToneBarbell/geremia/main/loghi/";
 
 function sendJson(res, data) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -24,9 +17,9 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "3.0.9",
+  version: "3.1.0",
   name: "Zappr Geremia",
-  description: "Canali Zappr dinamici nazionali + Lombardia",
+  description: "Canali TV nazionali + Lombardia con loghi GitHub",
   resources: ["catalog", "meta", "stream"],
   types: ["tv"],
   catalogs: [
@@ -43,7 +36,7 @@ function normalizeName(name) {
     .toLowerCase()
     .trim()
     .normalize("NFD")
-    .replace(/[\\u0300-\\u036f]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
 }
@@ -53,7 +46,7 @@ function normalizeLogoKey(value) {
     .toLowerCase()
     .trim()
     .normalize("NFD")
-    .replace(/[\\u0300-\\u036f]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "")
     .replace(/^_+|_+$/g, "");
 }
@@ -69,95 +62,74 @@ function buildLogoCandidates(channel) {
   const byId = normalizeLogoKey(channel?.id);
   const byEpgId = normalizeLogoKey(channel?.epg?.id);
 
-  const manual = {
-    rai1: "rai1",
-    rai2: "rai2",
-    rai3: "rai3",
-    rai4: "rai4",
-    rai5: "rai5",
-    raimovie: "raimovie",
-    raipremium: "raipremium",
-    raistoria: "raistoria",
-    raiscuola: "raiscuola",
-    raisport: "raisport",
-    raigulp: "raigulp",
-    raiyoyo: "raiyoyo",
-    rainews24: "rainews24",
-    rete4: "rete4",
-    canale5: "canale5",
-    italia1: "italia1",
-    la7: "la7",
-    tv8: "tv8",
-    nove: "nove",
-    discovery: "discovery",
-    focus: "focus",
-    giallo: "giallo",
-    topcrime: "topcrime",
-    boing: "boing",
-    k2: "k2",
-    cartoonito: "cartoonito",
-    frisbee: "frisbee",
-    realtime: "realtime",
-    dmax: "dmax",
-    la5: "la5",
-    cine34: "cine34",
-    iris: "iris",
-    mediasetextra: "mediasetextra",
-    la7cinema: "la7cinema",
-    la7d: "la7d",
-    skytg24: "skytg24",
-    tgcom24: "tgcom24",
-    qvc: "qvc",
-    hgtv: "hgtv",
-    foodnetwork: "foodnetwork",
-    supertennis: "supertennis",
-    telelombardia: "telelombardia",
-    telereporter: "telereporter",
-    lombardiatv: "lombardiatv",
-    antennatre: "antennatre",
-    malpensa24tv: "malpensa24",
-    topcalcio24: "topcalcio24"
+  const alias = {
+    rai1: ["rai1", "raiuno"],
+    rai2: ["rai2", "raidue"],
+    rai3: ["rai3", "raitre"],
+    rai4: ["rai4"],
+    rai5: ["rai5"],
+    raimovie: ["raimovie", "rai_movie"],
+    raipremium: ["raipremium"],
+    raistoria: ["raistoria"],
+    raiscuola: ["raiscuola"],
+    raisport: ["raisport", "raisport1"],
+    raigulp: ["raigulp"],
+    raiyoyo: ["raiyoyo"],
+    rainews24: ["rainews24"],
+    rete4: ["rete4"],
+    canale5: ["canale5"],
+    italia1: ["italia1"],
+    la7: ["la7"],
+    tv8: ["tv8"],
+    nove: ["nove"],
+    discovery: ["discovery"],
+    focus: ["focus"],
+    giallo: ["giallo"],
+    topcrime: ["topcrime"],
+    boing: ["boing"],
+    k2: ["k2"],
+    cartoonito: ["cartoonito"],
+    frisbee: ["frisbee"],
+    realtime: ["realtime"],
+    dmax: ["dmax"],
+    la5: ["la5"],
+    cine34: ["cine34"],
+    iris: ["iris"],
+    mediasetextra: ["mediasetextra"],
+    la7cinema: ["la7cinema"],
+    la7d: ["la7d"],
+    skytg24: ["skytg24"],
+    tgcom24: ["tgcom24"],
+    qvc: ["qvc"],
+    hgtv: ["hgtv"],
+    foodnetwork: ["foodnetwork"],
+    supertennis: ["supertennis"],
+    telelombardia: ["telelombardia"],
+    telereporter: ["telereporter"],
+    lombardiatv: ["lombardiatv"],
+    antennatre: ["antennatre"],
+    malpensa24tv: ["malpensa24"],
+    topcalcio24: ["topcalcio24"]
   };
 
-  const ordered = [
-    manual[byName],
-    manual[byId],
-    manual[byEpgId],
+  const keys = [
     byName,
     byId,
-    byEpgId
+    byEpgId,
+    ...(alias[byName] || []),
+    ...(alias[byId] || []),
+    ...(alias[byEpgId] || [])
   ].filter(Boolean);
 
-  return [...new Set(ordered)];
+  return [...new Set(keys)];
 }
 
-// MODIFICATO: priorità ai TUOI loghi GitHub
 function buildLogoUrl(channel) {
   const candidates = buildLogoCandidates(channel);
-
   for (const key of candidates) {
-    if (!key) continue;
-
-    // PRIORITÀ 1: I TUOI LOGHI GitHub
-    const geremiaUrl = `${GEREMIA_LOGOS_BASE}${key}.png`;
-    
-    // Priorità successive (fallback)
-    const urls = [
-      geremiaUrl,  // I TUOI LOGHI
-      `${ZAPPR_OPTIMIZED_LOGOS_BASE}/${key}.webp`,
-      `${ZAPPR_LOGOS_BASE}/${key}.png`,
-      `${TUNDRAK_LOGOS_BASE}${key}.png`
-    ];
-
-    // Ritorna il primo disponibile (i tuoi loghi hanno priorità massima)
-    for (const url of urls) {
-      // Controlla se esiste (solo per sviluppo, in produzione puoi togliere)
-      // fetch(url).then(r => r.ok).catch(() => false)
-      return url;
-    }
+    return `${LOGOS_BASE}${key}.png`;
   }
-
-  return undefined;
+  return null;
 }
 
 function extractChannels(data) {
@@ -179,28 +151,17 @@ function isRadioChannel(channel) {
 function isAdultOrShopping(channel) {
   if (!channel) return false;
   if (channel.adult === true) return true;
-
   const name = String(channel.name || "").toLowerCase();
-  if (
-    name.includes("adult") ||
-    name.includes("shopping") ||
-    name.includes("promo")
-  ) {
-    return true;
-  }
-
-  return false;
+  return name.includes("adult") || name.includes("shopping") || name.includes("promo");
 }
 
 function isHbbtvAppOnly(channel) {
   if (!channel) return false;
-  if (channel.hbbtvapp === true) return true;
-  if (channel.hbbtvmosaic === true) return true;
-  return false;
+  return channel.hbbtvapp === true || channel.hbbtvmosaic === true;
 }
 
 function isHttpUrl(url) {
-  return typeof url === "string" && /^https?:\\/\\//i.test(url.trim());
+  return typeof url === "string" && /^https?:\/\//i.test(url.trim());
 }
 
 function isIframeOnly(channel) {
@@ -209,15 +170,12 @@ function isIframeOnly(channel) {
 
 function buildRaiRelinkerUrlFromIframeUrl(url) {
   if (!isHttpUrl(url)) return null;
-
   try {
     const parsed = new URL(url);
     const videoURL = parsed.searchParams.get("videoURL");
     const cont = parsed.searchParams.get("cont");
-
     if (!videoURL || !cont) return null;
-
-    const base = videoURL.replace(/\\/+$/, "");
+    const base = videoURL.replace(/\/+$/, "");
     return `${base}?cont=${encodeURIComponent(cont)}&output=16`;
   } catch {
     return null;
@@ -227,11 +185,7 @@ function buildRaiRelinkerUrlFromIframeUrl(url) {
 function pickRawPlayableUrl(channel) {
   if (!channel) return null;
 
-  if (
-    channel.nativeHLS &&
-    typeof channel.nativeHLS === "object" &&
-    isHttpUrl(channel.nativeHLS.url)
-  ) {
+  if (channel.nativeHLS && typeof channel.nativeHLS === "object" && isHttpUrl(channel.nativeHLS.url)) {
     return channel.nativeHLS.url.trim();
   }
 
@@ -242,33 +196,19 @@ function pickRawPlayableUrl(channel) {
     if (raiRelinker) return raiRelinker;
   }
 
-  if (isHttpUrl(channel.url) && type !== "iframe") {
-    return channel.url.trim();
-  }
+  if (isHttpUrl(channel.url) && type !== "iframe") return channel.url.trim();
 
-  if (
-    channel.geoblock &&
-    typeof channel.geoblock === "object" &&
-    isHttpUrl(channel.geoblock.url)
-  ) {
+  if (channel.geoblock && typeof channel.geoblock === "object" && isHttpUrl(channel.geoblock.url)) {
     return channel.geoblock.url.trim();
   }
 
-  if (
-    channel.fallback &&
-    typeof channel.fallback === "object" &&
-    isHttpUrl(channel.fallback.url)
-  ) {
+  if (channel.fallback && typeof channel.fallback === "object" && isHttpUrl(channel.fallback.url)) {
     const fallbackType = String(channel.fallback.type || "").toLowerCase();
-
     if (fallbackType === "iframe") {
       const raiRelinker = buildRaiRelinkerUrlFromIframeUrl(channel.fallback.url);
       if (raiRelinker) return raiRelinker;
     }
-
-    if (fallbackType !== "iframe") {
-      return channel.fallback.url.trim();
-    }
+    if (fallbackType !== "iframe") return channel.fallback.url.trim();
   }
 
   return null;
@@ -312,4 +252,120 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
       });
     }
 
-    if (Array.isArray(channel.channels)
+    if (Array.isArray(channel.channels) && channel.channels.length > 0) {
+      result.push(...flattenChannels(channel.channels, prefix, channel.lcn ?? parentLcn ?? null));
+    }
+
+    if (Array.isArray(channel.hbbtv) && channel.hbbtv.length > 0) {
+      result.push(...flattenChannels(channel.hbbtv, prefix, channel.lcn ?? parentLcn ?? null));
+    }
+  }
+
+  return result;
+}
+
+function loadSourceFromFile(filePath, prefix) {
+  const raw = fs.readFileSync(filePath, "utf8");
+  const data = JSON.parse(raw);
+  return flattenChannels(extractChannels(data), prefix);
+}
+
+function dedupeChannels(channels) {
+  const map = new Map();
+  for (const channel of channels) {
+    if (!channel.id) continue;
+    if (!map.has(channel.id)) map.set(channel.id, channel);
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    const lcnA = a.lcn ?? 999999;
+    const lcnB = b.lcn ?? 999999;
+    if (lcnA !== lcnB) return lcnA - lcnB;
+    return a.name.localeCompare(b.name, "it");
+  });
+}
+
+async function loadChannels() {
+  const nationalChannels = loadSourceFromFile(NATIONAL_JSON_PATH, "zappr");
+  const lombardiaChannels = loadSourceFromFile(LOMBARDIA_JSON_PATH, "zappr");
+  return dedupeChannels([...nationalChannels, ...lombardiaChannels]);
+}
+
+app.get("/", (req, res) => res.redirect("/manifest.json"));
+
+app.get("/manifest.json", (req, res) => sendJson(res, manifest));
+
+app.get("/catalog/tv/zappr_tv.json", async (req, res) => {
+  try {
+    const channels = await loadChannels();
+    sendJson(res, {
+      metas: channels.map((channel) => ({
+        id: channel.id,
+        type: "tv",
+        name: channel.lcn ? `${channel.lcn} - ${channel.name}` : channel.name,
+        poster: channel.poster,
+        background: channel.background,
+        logo: channel.logo,
+        posterShape: "poster"
+      }))
+    });
+  } catch (error) {
+    console.error(error);
+    sendJson(res, { metas: [] });
+  }
+});
+
+app.get("/meta/tv/:id.json", async (req, res) => {
+  try {
+    const channels = await loadChannels();
+    const channel = channels.find((c) => c.id === req.params.id);
+    if (!channel) return sendJson(res, { meta: null });
+
+    sendJson(res, {
+      meta: {
+        id: channel.id,
+        type: "tv",
+        name: channel.lcn ? `${channel.lcn} - ${channel.name}` : channel.name,
+        poster: channel.poster,
+        background: channel.background,
+        logo: channel.logo,
+        posterShape: "poster",
+        description: `Canale TV live: ${channel.name}`
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    sendJson(res, { meta: null });
+  }
+});
+
+app.get("/stream/tv/:id.json", async (req, res) => {
+  try {
+    const channels = await loadChannels();
+    const channel = channels.find((c) => c.id === req.params.id);
+    if (!channel || !channel.streamUrl) return sendJson(res, { streams: [] });
+
+    return sendJson(res, {
+      streams: [
+        {
+          title: channel.hd ? `${channel.name} HD` : channel.name,
+          url: channel.streamUrl,
+          behaviorHints: {
+            notWebReady: true
+          }
+        }
+      ]
+    });
+  } catch (error) {
+    console.error(error);
+    return sendJson(res, { streams: [] });
+  }
+});
+
+app.options("*", (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.status(204).end();
+});
+
+module.exports = app;
