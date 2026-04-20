@@ -5,6 +5,9 @@ const app = express();
 
 const NATIONAL_JSON_PATH = path.join(process.cwd(), "data", "national.json");
 const LOMBARDIA_JSON_PATH = path.join(process.cwd(), "data", "regional", "lombardia.json");
+
+const ZAPPR_LOGOS_BASE = "https://channels.zappr.stream/logos/it";
+const ZAPPR_OPTIMIZED_LOGOS_BASE = "https://channels.zappr.stream/logos/it/optimized";
 const TUNDRAK_LOGOS_BASE = "https://cdn.jsdelivr.net/gh/Tundrak/IPTV-Italia/logos/";
 
 function sendJson(res, data) {
@@ -17,9 +20,9 @@ function sendJson(res, data) {
 
 const manifest = {
   id: "org.zapprtv.geremia",
-  version: "3.0.8",
+  version: "3.0.9",
   name: "Zappr Geremia",
-  description: "Canali Zappr dinamici nazionali + Lombardia - Loghi Tundrak",
+  description: "Canali Zappr dinamici nazionali + Lombardia",
   resources: ["catalog", "meta", "stream"],
   types: ["tv"],
   catalogs: [
@@ -41,17 +44,28 @@ function normalizeName(name) {
     .replace(/^_+|_+$/g, "");
 }
 
+function normalizeLogoKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "")
+    .replace(/^_+|_+$/g, "");
+}
+
 function buildId(channel, prefix = "zappr", parentLcn = null) {
   const lcn = channel.lcn ?? parentLcn ?? "x";
   const base = channel.id || (channel.epg && channel.epg.id) || channel.name || "canale";
   return `${prefix}_${lcn}_${normalizeName(base)}`;
 }
 
-function buildLogoUrlTundrak(channelName) {
-  if (!channelName) return undefined;
+function buildLogoCandidates(channel) {
+  const byName = normalizeLogoKey(channel?.name);
+  const byId = normalizeLogoKey(channel?.id);
+  const byEpgId = normalizeLogoKey(channel?.epg?.id);
 
-  const normalized = normalizeName(channelName).replace(/_/g, "");
-  const mapping = {
+  const manual = {
     rai1: "rai1",
     rai2: "rai2",
     rai3: "rai3",
@@ -94,11 +108,43 @@ function buildLogoUrlTundrak(channelName) {
     foodnetwork: "foodnetwork",
     supertennis: "supertennis",
     telelombardia: "telelombardia",
+    telereporter: "telereporter",
+    lombardiatv: "lombardiatv",
+    antennatre: "antennatre",
+    malpensa24tv: "malpensa24",
     topcalcio24: "topcalcio24"
   };
 
-  const key = mapping[normalized] || normalized;
-  return `${TUNDRAK_LOGOS_BASE}${key}.png`;
+  const ordered = [
+    manual[byName],
+    manual[byId],
+    manual[byEpgId],
+    byName,
+    byId,
+    byEpgId
+  ].filter(Boolean);
+
+  return [...new Set(ordered)];
+}
+
+function buildLogoUrl(channel) {
+  const candidates = buildLogoCandidates(channel);
+
+  for (const key of candidates) {
+    if (!key) continue;
+
+    // Priorità: Zappr optimized WEBP, poi Zappr PNG, poi Tundrak PNG
+    // Evitiamo SVG perché Stremio documenta poster/background/logo come PNG
+    const urls = [
+      `${ZAPPR_OPTIMIZED_LOGOS_BASE}/${key}.webp`,
+      `${ZAPPR_LOGOS_BASE}/${key}.png`,
+      `${TUNDRAK_LOGOS_BASE}${key}.png`
+    ];
+
+    return urls[0] || urls[1] || urls[2];
+  }
+
+  return undefined;
 }
 
 function extractChannels(data) {
@@ -120,8 +166,16 @@ function isRadioChannel(channel) {
 function isAdultOrShopping(channel) {
   if (!channel) return false;
   if (channel.adult === true) return true;
+
   const name = String(channel.name || "").toLowerCase();
-  if (name.includes("adult") || name.includes("shopping") || name.includes("promo")) return true;
+  if (
+    name.includes("adult") ||
+    name.includes("shopping") ||
+    name.includes("promo")
+  ) {
+    return true;
+  }
+
   return false;
 }
 
@@ -228,7 +282,7 @@ function flattenChannels(channels, prefix = "zappr", parentLcn = null) {
     if (isVisibleTvChannel(channel)) {
       const id = buildId(channel, prefix, parentLcn);
       const streamUrl = buildStreamUrl(channel);
-      const logo = buildLogoUrlTundrak(channel.name);
+      const logo = buildLogoUrl(channel);
 
       result.push({
         id,
