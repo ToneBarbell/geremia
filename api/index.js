@@ -26,7 +26,7 @@ const manifest = {
     {
       type: "tv",
       id: "zappr_tv",
-      name: "Zappr TV Lombardia + Nazionali"
+      name: "Nazionali + Lombardia"
     }
   ]
 };
