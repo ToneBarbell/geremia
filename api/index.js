@@ -185,6 +185,10 @@ function buildRaiRelinkerUrlFromIframeUrl(url) {
 function pickRawPlayableUrl(channel) {
   if (!channel) return null;
 
+  if (typeof channel.url === "string" && channel.url.includes("streamlink.zappr.stream")) {
+    return channel.url.trim();
+  }
+
   if (channel.nativeHLS && typeof channel.nativeHLS === "object" && isHttpUrl(channel.nativeHLS.url)) {
     return channel.nativeHLS.url.trim();
   }
